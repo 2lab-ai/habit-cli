@@ -4,20 +4,39 @@ Local, personal habit/routine tracking CLI.
 
 - Local-first (single JSON file)
 - No network / no telemetry
-- Deterministic outputs (stable sorting + `--today`)
+- Deterministic outputs (stable sorting + `--today` / `HABITCLI_TODAY`)
 
 ## Requirements
 
-- Node.js **18+**
+- Rust toolchain (stable)
 
-## Install (dev)
+## Install
+
+### Build from source
 
 ```bash
-npm install
-npm link
+cargo build --release
 
-# now you have the `habit` command on your PATH
+# binary:
+./target/release/habit --help
+```
+
+### Install locally (dev)
+
+```bash
+cargo install --path .
+
 habit --help
+```
+
+## Run (dev)
+
+```bash
+# runs the `habit` binary defined in Cargo.toml
+cargo run -- --help
+
+# example command
+cargo run -- add "Stretch" --schedule weekdays --target 1 --period day
 ```
 
 ## Quickstart
@@ -79,10 +98,15 @@ Default path (in priority order):
 
 ## Output formats
 
-Many commands support:
+Most commands support:
 
 - `--format table` (default)
 - `--format json` (stable; useful for scripting/tests)
+
+`habit export` requires:
+
+- `--format json` (writes JSON)
+- `--format csv --out <dir>` (writes `habits.csv` and `checkins.csv`)
 
 Disable ANSI color:
 

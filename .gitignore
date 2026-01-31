@@ -1,9 +1,4 @@
-# Dependencies
-node_modules/
-
-# Logs
-*.log
-npm-debug.log*
+/target
 
 # OS files
 .DS_Store
@@ -15,13 +10,6 @@ Thumbs.db
 *.swp
 *.swo
 *~
-
-# Test artifacts
-coverage/
-.nyc_output/
-
-# Build output (if any)
-dist/
 
 # Environment files
 .env
