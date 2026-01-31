@@ -79,14 +79,25 @@ fn compute_daily_stats(db: &Db, habit: &Habit, from: &str, to: &str) -> Result<S
         name: habit.name.clone(),
         period: "day".to_string(),
         target: habit.target.quantity,
-        window: Window { from: from.to_string(), to: to.to_string() },
+        window: Window {
+            from: from.to_string(),
+            to: to.to_string(),
+        },
         current_streak: current,
         longest_streak: longest,
-        success_rate: SuccessRate { successes, eligible, rate },
+        success_rate: SuccessRate {
+            successes,
+            eligible,
+            rate,
+        },
     })
 }
 
-fn week_sum_for_habit(db: &Db, habit: &Habit, week_start_date: &str) -> Result<u32, CliError> {
+fn week_sum_for_habit(
+    db: &Db,
+    habit: &Habit,
+    week_start_date: &str,
+) -> Result<u32, CliError> {
     let end = iso_week_end(week_start_date)?;
     let days = date_range_inclusive(week_start_date, &end)?;
 
@@ -100,7 +111,10 @@ fn week_sum_for_habit(db: &Db, habit: &Habit, week_start_date: &str) -> Result<u
     Ok(sum)
 }
 
-fn week_range_inclusive(from_week_start: &str, to_week_start: &str) -> Result<Vec<String>, CliError> {
+fn week_range_inclusive(
+    from_week_start: &str,
+    to_week_start: &str,
+) -> Result<Vec<String>, CliError> {
     let mut weeks: Vec<String> = Vec::new();
     let mut cur = from_week_start.to_string();
     while cur <= to_week_start {
@@ -110,7 +124,12 @@ fn week_range_inclusive(from_week_start: &str, to_week_start: &str) -> Result<Ve
     Ok(weeks)
 }
 
-fn compute_weekly_stats(db: &Db, habit: &Habit, from: &str, to: &str) -> Result<StatsRow, CliError> {
+fn compute_weekly_stats(
+    db: &Db,
+    habit: &Habit,
+    from: &str,
+    to: &str,
+) -> Result<StatsRow, CliError> {
     let start_week = iso_week_start(from)?;
     let end_week = iso_week_start(to)?;
     let all_week_starts = week_range_inclusive(&start_week, &end_week)?;

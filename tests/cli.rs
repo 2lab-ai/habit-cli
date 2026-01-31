@@ -72,13 +72,7 @@ fn add_list_show_flow_json() {
 
     // List (sorted by name)
     let out = habit_cmd()
-        .args([
-            "--db",
-            db.to_str().unwrap(),
-            "--format",
-            "json",
-            "list",
-        ])
+        .args(["--db", db.to_str().unwrap(), "--format", "json", "list"])
         .assert()
         .success()
         .get_output()
