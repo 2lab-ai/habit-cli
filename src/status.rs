@@ -1,4 +1,5 @@
 use crate::checkins::get_quantity;
+use crate::completion::{counted_quantity, is_declared};
 use crate::date::{date_range_inclusive, iso_week_end, iso_week_id, iso_week_start};
 use crate::error::CliError;
 use crate::habits::{is_scheduled_on, stable_habit_sort};
@@ -22,8 +23,20 @@ pub struct TodayHabitRow {
     pub name: String,
     pub period: String,
     pub target: u32,
+
+    /// Quantity that counts toward completion semantics.
     pub quantity: u32,
+
+    /// Raw recorded quantity (may differ if declaration-gated).
+    pub raw_quantity: u32,
+
     pub done: bool,
+
+    /// Whether this habit requires a declaration for completion.
+    pub needs_declaration: bool,
+
+    /// Whether a declaration exists for this date (if required).
+    pub declared: bool,
 }
 
 #[derive(Debug, Clone, serde::Serialize)]
@@ -48,6 +61,7 @@ pub struct WeekHabitDayRow {
     pub period: String,
     pub scheduled_days: u32,
     pub done_scheduled_days: u32,
+    pub needs_declaration: bool,
 }
 
 #[derive(Debug, Clone, serde::Serialize)]
@@ -56,20 +70,33 @@ pub struct WeekHabitWeekRow {
     pub name: String,
     pub period: String,
     pub target: u32,
+
+    /// Counted quantity for the ISO week.
     pub quantity: u32,
+
+    /// Raw recorded quantity for the ISO week.
+    pub raw_quantity: u32,
+
+    pub needs_declaration: bool,
 }
 
-fn week_sum_for_habit(db: &Db, habit: &Habit, week_start_date: &str) -> Result<u32, CliError> {
+fn week_sum_for_habit(
+    db: &Db,
+    habit: &Habit,
+    week_start_date: &str,
+) -> Result<(u32, u32), CliError> {
     let end = iso_week_end(week_start_date)?;
     let days = date_range_inclusive(week_start_date, &end)?;
-    let mut sum = 0u32;
+    let mut raw_sum = 0u32;
+    let mut counted_sum = 0u32;
     for d in days {
         if d < habit.created_date {
             continue;
         }
-        sum = sum.saturating_add(get_quantity(db, &habit.id, &d));
+        raw_sum = raw_sum.saturating_add(get_quantity(db, &habit.id, &d));
+        counted_sum = counted_sum.saturating_add(counted_quantity(db, habit, &d));
     }
-    Ok(sum)
+    Ok((raw_sum, counted_sum))
 }
 
 pub fn build_status(
@@ -97,26 +124,34 @@ pub fn build_status(
             continue;
         }
         if h.target.period == "day" {
-            let qty = get_quantity(db, &h.id, today);
-            let done = qty >= h.target.quantity;
+            let raw = get_quantity(db, &h.id, today);
+            let counted = counted_quantity(db, h, today);
+            let declared = is_declared(db, h, today);
+            let done = declared && counted >= h.target.quantity;
             today_rows.push(TodayHabitRow {
                 id: h.id.clone(),
                 name: h.name.clone(),
                 period: "day".to_string(),
                 target: h.target.quantity,
-                quantity: qty,
+                quantity: counted,
+                raw_quantity: raw,
                 done,
+                needs_declaration: h.needs_declaration,
+                declared,
             });
         } else {
-            let sum = week_sum_for_habit(db, h, &week_start)?;
-            let done = sum >= h.target.quantity;
+            let (raw_sum, counted_sum) = week_sum_for_habit(db, h, &week_start)?;
+            let done = counted_sum >= h.target.quantity;
             today_rows.push(TodayHabitRow {
                 id: h.id.clone(),
                 name: h.name.clone(),
                 period: "week".to_string(),
                 target: h.target.quantity,
-                quantity: sum,
+                quantity: counted_sum,
+                raw_quantity: raw_sum,
                 done,
+                needs_declaration: h.needs_declaration,
+                declared: is_declared(db, h, today),
             });
         }
     }
@@ -133,8 +168,9 @@ pub fn build_status(
                     continue;
                 }
                 scheduled += 1;
-                let qty = get_quantity(db, &h.id, d);
-                if qty >= h.target.quantity {
+                let counted = counted_quantity(db, h, d);
+                let declared = is_declared(db, h, d);
+                if declared && counted >= h.target.quantity {
                     done_days += 1;
                 }
             }
@@ -144,15 +180,18 @@ pub fn build_status(
                 period: "day".to_string(),
                 scheduled_days: scheduled,
                 done_scheduled_days: done_days,
+                needs_declaration: h.needs_declaration,
             }));
         } else {
-            let sum = week_sum_for_habit(db, h, &week_start)?;
+            let (raw_sum, counted_sum) = week_sum_for_habit(db, h, &week_start)?;
             week_rows.push(WeekHabitRow::Week(WeekHabitWeekRow {
                 id: h.id.clone(),
                 name: h.name.clone(),
                 period: "week".to_string(),
                 target: h.target.quantity,
-                quantity: sum,
+                quantity: counted_sum,
+                raw_quantity: raw_sum,
+                needs_declaration: h.needs_declaration,
             }));
         }
     }

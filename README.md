@@ -55,6 +55,18 @@ habit add "Read" --schedule everyday --target 1 --period day --notes "10 pages c
 habit add "Run" --schedule weekdays --target 3 --period week
 ```
 
+Declaration gate (MVP v0.1)
+
+- New habits default to `needs_declaration=true`.
+- If a habit needs declarations, check-ins can still be recorded, but they are **not counted as complete** unless a declaration exists for that date.
+
+Example:
+
+```bash
+habit declare stretch --date 2026-01-31 --ts 2026-01-31T10:00:00Z --text "I will stretch today"
+habit checkin stretch --date 2026-01-31
+```
+
 Check in (defaults to today):
 
 ```bash

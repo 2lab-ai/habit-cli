@@ -115,6 +115,8 @@ pub fn make_habit(
     target: u32,
     notes: Option<&str>,
     today: &str,
+    needs_declaration: bool,
+    excuse_quota_per_week: u32,
 ) -> Result<Habit, CliError> {
     let habit_name = validate_habit_name(name)?;
     let schedule: Schedule = parse_schedule_pattern(schedule_pattern)?;
@@ -142,6 +144,8 @@ pub fn make_habit(
         archived: false,
         created_date: today.to_string(),
         archived_date: None,
+        needs_declaration,
+        excuse_quota_per_week,
     })
 }
 

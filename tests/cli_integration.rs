@@ -382,3 +382,391 @@ fn ambiguous_selector_exits_4() {
         assert!(stderr_str(&out).to_lowercase().contains("ambiguous"));
     }
 }
+
+#[test]
+fn new_habit_completion_requires_declaration() {
+    let tmp = tempfile::tempdir().unwrap();
+    let db_path = tmp.path().join("db.json");
+    let db = db_path.to_string_lossy().to_string();
+
+    let today = "2026-01-31";
+
+    let shared_env = [
+        ("HABITCLI_DB_PATH", db.as_str()),
+        ("HABITCLI_TODAY", today),
+        ("NO_COLOR", "1"),
+    ];
+    let global = ["--db", db.as_str(), "--today", today, "--no-color"];
+
+    // add habit (defaults to needs_declaration=true)
+    {
+        let mut args: Vec<&str> = Vec::new();
+        args.extend_from_slice(&global);
+        args.extend_from_slice(&["add", "Gate", "--schedule", "everyday", "--format", "json"]);
+        let out = run_habit(&args, &shared_env);
+        assert_eq!(out.status.code(), Some(0), "stderr: {}", stderr_str(&out));
+    }
+
+    // checkin without declaration
+    {
+        let mut args: Vec<&str> = Vec::new();
+        args.extend_from_slice(&global);
+        args.extend_from_slice(&["checkin", "Gate", "--date", today, "--qty", "1"]);
+        let out = run_habit(&args, &shared_env);
+        assert_eq!(out.status.code(), Some(0), "stderr: {}", stderr_str(&out));
+    }
+
+    // status should show done=false (counted_quantity=0)
+    {
+        let mut args: Vec<&str> = Vec::new();
+        args.extend_from_slice(&global);
+        args.extend_from_slice(&["status", "--date", today, "--format", "json"]);
+        let out = run_habit(&args, &shared_env);
+        assert_eq!(out.status.code(), Some(0), "stderr: {}", stderr_str(&out));
+
+        let json: serde_json::Value = serde_json::from_str(stdout_str(&out).trim()).unwrap();
+        let habits = json
+            .get("today")
+            .unwrap()
+            .get("habits")
+            .unwrap()
+            .as_array()
+            .unwrap();
+        let gate = habits
+            .iter()
+            .find(|h| h.get("name").unwrap().as_str().unwrap() == "Gate")
+            .unwrap();
+        assert_eq!(gate.get("done").unwrap().as_bool().unwrap(), false);
+        assert_eq!(gate.get("quantity").unwrap().as_u64().unwrap(), 0);
+        assert_eq!(gate.get("raw_quantity").unwrap().as_u64().unwrap(), 1);
+        assert_eq!(
+            gate.get("needs_declaration").unwrap().as_bool().unwrap(),
+            true
+        );
+        assert_eq!(gate.get("declared").unwrap().as_bool().unwrap(), false);
+    }
+
+    // declare and check status again
+    {
+        let mut args: Vec<&str> = Vec::new();
+        args.extend_from_slice(&global);
+        args.extend_from_slice(&[
+            "declare",
+            "Gate",
+            "--date",
+            today,
+            "--ts",
+            "2026-01-31T10:00:00Z",
+            "--text",
+            "I will do it",
+            "--format",
+            "json",
+        ]);
+        let out = run_habit(&args, &shared_env);
+        assert_eq!(out.status.code(), Some(0), "stderr: {}", stderr_str(&out));
+    }
+
+    {
+        let mut args: Vec<&str> = Vec::new();
+        args.extend_from_slice(&global);
+        args.extend_from_slice(&["status", "--date", today, "--format", "json"]);
+        let out = run_habit(&args, &shared_env);
+        assert_eq!(out.status.code(), Some(0), "stderr: {}", stderr_str(&out));
+
+        let json: serde_json::Value = serde_json::from_str(stdout_str(&out).trim()).unwrap();
+        let habits = json
+            .get("today")
+            .unwrap()
+            .get("habits")
+            .unwrap()
+            .as_array()
+            .unwrap();
+        let gate = habits
+            .iter()
+            .find(|h| h.get("name").unwrap().as_str().unwrap() == "Gate")
+            .unwrap();
+        assert_eq!(gate.get("done").unwrap().as_bool().unwrap(), true);
+        assert_eq!(gate.get("quantity").unwrap().as_u64().unwrap(), 1);
+        assert_eq!(gate.get("declared").unwrap().as_bool().unwrap(), true);
+    }
+}
+
+#[test]
+fn exceptions_affect_penalty_tick() {
+    let tmp = tempfile::tempdir().unwrap();
+    let db_path = tmp.path().join("db.json");
+    let db = db_path.to_string_lossy().to_string();
+
+    let today = "2026-01-31";
+    let tomorrow = "2026-02-01";
+    let day_after = "2026-02-02";
+
+    let shared_env = [
+        ("HABITCLI_DB_PATH", db.as_str()),
+        ("HABITCLI_TODAY", today),
+        ("NO_COLOR", "1"),
+    ];
+    let global = ["--db", db.as_str(), "--today", today, "--no-color"];
+
+    // add habit
+    {
+        let mut args: Vec<&str> = Vec::new();
+        args.extend_from_slice(&global);
+        args.extend_from_slice(&[
+            "add",
+            "Pushups",
+            "--schedule",
+            "everyday",
+            "--needs-declaration",
+            "false",
+            "--format",
+            "json",
+        ]);
+        let out = run_habit(&args, &shared_env);
+        assert_eq!(out.status.code(), Some(0), "stderr: {}", stderr_str(&out));
+    }
+
+    // arm penalty rule
+    {
+        let mut args: Vec<&str> = Vec::new();
+        args.extend_from_slice(&global);
+        args.extend_from_slice(&[
+            "penalty",
+            "arm",
+            "Pushups",
+            "--multiplier",
+            "2",
+            "--cap",
+            "8",
+            "--deadline-days",
+            "1",
+            "--date",
+            today,
+            "--ts",
+            "2026-01-31T09:00:00Z",
+            "--format",
+            "json",
+        ]);
+        let out = run_habit(&args, &shared_env);
+        assert_eq!(out.status.code(), Some(0), "stderr: {}", stderr_str(&out));
+    }
+
+    // excuse today (allowed) => tick should NOT create debt due tomorrow
+    {
+        let mut args: Vec<&str> = Vec::new();
+        args.extend_from_slice(&global);
+        args.extend_from_slice(&[
+            "excuse",
+            "Pushups",
+            "--date",
+            today,
+            "--ts",
+            "2026-01-31T09:30:00Z",
+            "--reason",
+            "sick",
+            "--kind",
+            "allowed",
+            "--format",
+            "json",
+        ]);
+        let out = run_habit(&args, &shared_env);
+        assert_eq!(out.status.code(), Some(0), "stderr: {}", stderr_str(&out));
+    }
+
+    {
+        let mut args: Vec<&str> = Vec::new();
+        args.extend_from_slice(&global);
+        args.extend_from_slice(&[
+            "penalty",
+            "tick",
+            "--date",
+            today,
+            "--ts",
+            "2026-01-31T23:59:00Z",
+            "--format",
+            "json",
+        ]);
+        let out = run_habit(&args, &shared_env);
+        assert_eq!(out.status.code(), Some(0), "stderr: {}", stderr_str(&out));
+    }
+
+    {
+        let mut args: Vec<&str> = Vec::new();
+        args.extend_from_slice(&global);
+        args.extend_from_slice(&["penalty", "status", "--date", tomorrow, "--format", "json"]);
+        let out = run_habit(&args, &shared_env);
+        assert_eq!(out.status.code(), Some(0), "stderr: {}", stderr_str(&out));
+        let json: serde_json::Value = serde_json::from_str(stdout_str(&out).trim()).unwrap();
+        assert_eq!(json.get("debts").unwrap().as_array().unwrap().len(), 0);
+    }
+
+    // no excuse tomorrow => tick should create debt due day_after
+    {
+        let mut args: Vec<&str> = Vec::new();
+        args.extend_from_slice(&global);
+        args.extend_from_slice(&[
+            "penalty",
+            "tick",
+            "--date",
+            tomorrow,
+            "--ts",
+            "2026-02-01T23:59:00Z",
+            "--format",
+            "json",
+        ]);
+        let out = run_habit(&args, &shared_env);
+        assert_eq!(out.status.code(), Some(0), "stderr: {}", stderr_str(&out));
+    }
+
+    {
+        let mut args: Vec<&str> = Vec::new();
+        args.extend_from_slice(&global);
+        args.extend_from_slice(&["penalty", "status", "--date", day_after, "--format", "json"]);
+        let out = run_habit(&args, &shared_env);
+        assert_eq!(out.status.code(), Some(0), "stderr: {}", stderr_str(&out));
+        let json: serde_json::Value = serde_json::from_str(stdout_str(&out).trim()).unwrap();
+        let debts = json.get("debts").unwrap().as_array().unwrap();
+        assert_eq!(debts.len(), 1);
+    }
+}
+
+#[test]
+fn penalty_tick_is_idempotent() {
+    let tmp = tempfile::tempdir().unwrap();
+    let db_path = tmp.path().join("db.json");
+    let db = db_path.to_string_lossy().to_string();
+
+    let today = "2026-01-31";
+    let tomorrow = "2026-02-01";
+
+    let shared_env = [
+        ("HABITCLI_DB_PATH", db.as_str()),
+        ("HABITCLI_TODAY", today),
+        ("NO_COLOR", "1"),
+    ];
+    let global = ["--db", db.as_str(), "--today", today, "--no-color"];
+
+    // add habit + arm rule
+    {
+        let mut args: Vec<&str> = Vec::new();
+        args.extend_from_slice(&global);
+        args.extend_from_slice(&[
+            "add",
+            "Journal",
+            "--schedule",
+            "everyday",
+            "--needs-declaration",
+            "false",
+            "--format",
+            "json",
+        ]);
+        let out = run_habit(&args, &shared_env);
+        assert_eq!(out.status.code(), Some(0), "stderr: {}", stderr_str(&out));
+    }
+
+    {
+        let mut args: Vec<&str> = Vec::new();
+        args.extend_from_slice(&global);
+        args.extend_from_slice(&[
+            "penalty",
+            "arm",
+            "Journal",
+            "--multiplier",
+            "2",
+            "--cap",
+            "8",
+            "--deadline-days",
+            "1",
+            "--date",
+            today,
+            "--ts",
+            "2026-01-31T09:00:00Z",
+            "--format",
+            "json",
+        ]);
+        let out = run_habit(&args, &shared_env);
+        assert_eq!(out.status.code(), Some(0), "stderr: {}", stderr_str(&out));
+    }
+
+    // tick twice for same date
+    {
+        let mut args1: Vec<&str> = Vec::new();
+        args1.extend_from_slice(&global);
+        args1.extend_from_slice(&[
+            "penalty",
+            "tick",
+            "--date",
+            today,
+            "--ts",
+            "2026-01-31T23:00:00Z",
+            "--format",
+            "json",
+        ]);
+        let out1 = run_habit(&args1, &shared_env);
+        assert_eq!(out1.status.code(), Some(0), "stderr: {}", stderr_str(&out1));
+        let j1: serde_json::Value = serde_json::from_str(stdout_str(&out1).trim()).unwrap();
+        assert_eq!(j1.get("created").unwrap().as_array().unwrap().len(), 1);
+
+        let mut args2: Vec<&str> = Vec::new();
+        args2.extend_from_slice(&global);
+        args2.extend_from_slice(&[
+            "penalty",
+            "tick",
+            "--date",
+            today,
+            "--ts",
+            "2026-01-31T23:10:00Z",
+            "--format",
+            "json",
+        ]);
+        let out2 = run_habit(&args2, &shared_env);
+        assert_eq!(out2.status.code(), Some(0), "stderr: {}", stderr_str(&out2));
+        let j2: serde_json::Value = serde_json::from_str(stdout_str(&out2).trim()).unwrap();
+        assert_eq!(j2.get("created").unwrap().as_array().unwrap().len(), 0);
+    }
+
+    // status should show exactly one outstanding debt due tomorrow
+    {
+        let mut args: Vec<&str> = Vec::new();
+        args.extend_from_slice(&global);
+        args.extend_from_slice(&["penalty", "status", "--date", tomorrow, "--format", "json"]);
+        let out = run_habit(&args, &shared_env);
+        assert_eq!(out.status.code(), Some(0), "stderr: {}", stderr_str(&out));
+        let json: serde_json::Value = serde_json::from_str(stdout_str(&out).trim()).unwrap();
+        assert_eq!(json.get("debts").unwrap().as_array().unwrap().len(), 1);
+    }
+}
+
+#[test]
+fn declare_missing_required_flags_exits_2() {
+    let tmp = tempfile::tempdir().unwrap();
+    let db_path = tmp.path().join("db.json");
+    let db = db_path.to_string_lossy().to_string();
+
+    let today = "2026-01-31";
+
+    let shared_env = [
+        ("HABITCLI_DB_PATH", db.as_str()),
+        ("HABITCLI_TODAY", today),
+        ("NO_COLOR", "1"),
+    ];
+    let global = ["--db", db.as_str(), "--today", today, "--no-color"];
+
+    // add habit
+    {
+        let mut args: Vec<&str> = Vec::new();
+        args.extend_from_slice(&global);
+        args.extend_from_slice(&["add", "Decl", "--format", "json"]);
+        let out = run_habit(&args, &shared_env);
+        assert_eq!(out.status.code(), Some(0));
+    }
+
+    // missing --ts
+    {
+        let mut args: Vec<&str> = Vec::new();
+        args.extend_from_slice(&global);
+        args.extend_from_slice(&["declare", "Decl", "--date", today, "--text", "hi"]);
+        let out = run_habit(&args, &shared_env);
+        assert_eq!(out.status.code(), Some(2));
+    }
+}

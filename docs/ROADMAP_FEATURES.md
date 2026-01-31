@@ -27,6 +27,8 @@
 - status/stats/export
 - deterministic json output, stable sorting
 
+> Implementation note (v0.1 Rust): F1~F3 commands and data model were added (declare/excuse/penalty arm|tick|status|resolve|void) and the status/stats completion semantics now honor the declaration gate.
+
 ### F1. NEW Habit “Declaration Gate”
 - NEW 습관은 선언문 없으면 ‘완료 인정’ 불가(정책)
 - declare 기록(append-only) + 검증(형식/날짜/시간)

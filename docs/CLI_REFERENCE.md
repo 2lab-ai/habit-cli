@@ -72,6 +72,13 @@ habit add <name> [options]
   - Integer ≥ 1
   - Default: `1`
 - `--notes <text>`
+- `--needs-declaration <true|false>`
+  - Default: `true`
+  - If true, completion is only recognized when a declaration exists for that date.
+  - Semantics: check-ins may still be recorded, but are not counted toward completion until a declaration exists.
+- `--excuse-quota-per-week <N>`
+  - Default: `2`
+  - Maximum number of **allowed** excuses per ISO week (Mon..Sun) for this habit.
 
 **Output (table)**
 - prints created habit: id, name, schedule, target
@@ -157,7 +164,89 @@ habit checkin <habit> [--date YYYY-MM-DD] [--qty N] [--set N] [--delete]
 
 ---
 
-## 3.7 `habit status`
+## 3.7 `habit declare`
+Record a declaration for a habit on a date (append-only).
+
+**Usage**
+```bash
+habit declare <habit> --date YYYY-MM-DD --ts RFC3339 --text <string>
+```
+
+**Options**
+- `--date <YYYY-MM-DD>` (required)
+- `--ts <RFC3339>` (required)
+- `--text <string>` (required)
+
+**Semantics**
+- Declarations are append-only.
+- If a habit has `needs_declaration=true`, completion for that date is only recognized when a declaration exists for that date.
+
+---
+
+## 3.8 `habit excuse`
+Record an exception (excuse) for a habit on a date (append-only).
+
+**Usage**
+```bash
+habit excuse <habit> --date YYYY-MM-DD --ts RFC3339 --reason <string> [--kind allowed|denied]
+```
+
+**Options**
+- `--date <YYYY-MM-DD>` (required)
+- `--ts <RFC3339>` (required)
+- `--reason <string>` (required)
+- `--kind allowed|denied`
+  - Default: `allowed`
+
+**Quota policy (deterministic)**
+- Each habit has `excuse_quota_per_week` (default 2).
+- If an excuse is requested with `--kind allowed` but the weekly quota is exhausted, the record is stored as `denied`.
+
+---
+
+## 3.9 `habit penalty`
+Penalty/trap engine.
+
+### 3.9.1 `habit penalty arm`
+Register (or update) a penalty rule for a habit.
+
+**Usage**
+```bash
+habit penalty arm <habit> --multiplier 2 --cap 8 --deadline-days 1 --date YYYY-MM-DD --ts RFC3339
+```
+
+### 3.9.2 `habit penalty tick`
+Evaluate missed obligations for a date and create penalty debt for the next day.
+
+**Usage**
+```bash
+habit penalty tick --date YYYY-MM-DD --ts RFC3339 [--idempotency-key <string>]
+```
+
+**Notes**
+- Tick is idempotent: running it multiple times for the same date does not create duplicate debt.
+
+### 3.9.3 `habit penalty status` / `habit penalty list`
+List outstanding penalty debts as of a date.
+
+**Usage**
+```bash
+habit penalty status [--date YYYY-MM-DD] [--format table|json]
+habit penalty list   [--date YYYY-MM-DD] [--format table|json]
+```
+
+### 3.9.4 `habit penalty resolve` / `habit penalty void`
+Close a penalty debt.
+
+**Usage**
+```bash
+habit penalty resolve <debt_id> --date YYYY-MM-DD --ts RFC3339 --reason <string>
+habit penalty void    <debt_id> --date YYYY-MM-DD --ts RFC3339 --reason <string>
+```
+
+---
+
+## 3.10 `habit status`
 Dashboard view for today and the current week.
 
 **Usage**
@@ -182,7 +271,7 @@ habit status [--date YYYY-MM-DD] [--week-of YYYY-MM-DD] [--include-archived] [--
 
 ---
 
-## 3.8 `habit stats`
+## 3.11 `habit stats`
 Compute streaks and success rates.
 
 **Usage**
@@ -210,7 +299,7 @@ habit stats [<habit>] [--from YYYY-MM-DD] [--to YYYY-MM-DD] [--format table|json
 
 ---
 
-## 3.9 `habit export`
+## 3.12 `habit export`
 Export habits + check-ins.
 
 **Usage**

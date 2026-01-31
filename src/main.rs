@@ -1,15 +1,20 @@
 mod checkins;
+mod completion;
 mod date;
 mod db;
+mod declarations;
 mod error;
+mod excuses;
 mod export;
 mod habits;
 mod model;
 mod output;
+mod penalty;
 mod schedule;
 mod stable_json;
 mod stats;
 mod status;
+mod ts;
 
 use crate::checkins::{
     add_quantity, list_checkins_for_habit, list_checkins_in_range, set_quantity,
@@ -83,6 +88,9 @@ enum Command {
     Archive(SelectorArgs),
     Unarchive(SelectorArgs),
     Checkin(CheckinArgs),
+    Declare(DeclareArgs),
+    Excuse(ExcuseArgs),
+    Penalty(PenaltyArgs),
     Status(StatusArgs),
     Stats(StatsArgs),
     Export(ExportArgs),
@@ -105,6 +113,16 @@ struct AddArgs {
 
     #[arg(long)]
     notes: Option<String>,
+
+    /// If true, completion is only recognized when a declaration exists for that date.
+    ///
+    /// Clap note: accepts an explicit boolean value (`--needs-declaration true|false`).
+    #[arg(long, default_value_t = true, action = clap::ArgAction::Set)]
+    needs_declaration: bool,
+
+    /// Maximum number of allowed excused days per ISO week.
+    #[arg(long, default_value_t = 2)]
+    excuse_quota_per_week: u32,
 }
 
 #[derive(Args, Debug)]
@@ -139,6 +157,141 @@ struct CheckinArgs {
     /// Deletes the check-in record for that date
     #[arg(long)]
     delete: bool,
+}
+
+#[derive(Args, Debug)]
+struct DeclareArgs {
+    /// Habit selector: exact id (h0001) or unique name prefix (case-insensitive)
+    habit: String,
+
+    #[arg(long)]
+    date: String,
+
+    /// RFC3339 with offset (no implicit system clock)
+    #[arg(long)]
+    ts: String,
+
+    #[arg(long)]
+    text: String,
+}
+
+#[derive(Copy, Clone, Debug, Eq, PartialEq, ValueEnum)]
+enum ExcuseKindArg {
+    Allowed,
+    Denied,
+}
+
+#[derive(Args, Debug)]
+struct ExcuseArgs {
+    /// Habit selector: exact id (h0001) or unique name prefix (case-insensitive)
+    habit: String,
+
+    #[arg(long)]
+    date: String,
+
+    /// RFC3339 with offset (no implicit system clock)
+    #[arg(long)]
+    ts: String,
+
+    #[arg(long)]
+    reason: String,
+
+    #[arg(long, value_enum, default_value = "allowed")]
+    kind: ExcuseKindArg,
+}
+
+#[derive(Args, Debug)]
+struct PenaltyArgs {
+    #[command(subcommand)]
+    command: PenaltyCommand,
+}
+
+#[derive(Subcommand, Debug)]
+enum PenaltyCommand {
+    Arm(PenaltyArmArgs),
+    Tick(PenaltyTickArgs),
+    Status(PenaltyStatusArgs),
+    List(PenaltyStatusArgs),
+    Resolve(PenaltyResolveArgs),
+    Void(PenaltyVoidArgs),
+}
+
+#[derive(Args, Debug)]
+struct PenaltyArmArgs {
+    /// Habit selector: exact id (h0001) or unique name prefix (case-insensitive)
+    habit: String,
+
+    #[arg(long, default_value_t = 2)]
+    multiplier: u32,
+
+    #[arg(long, default_value_t = 8)]
+    cap: u32,
+
+    #[arg(long, default_value_t = 1)]
+    deadline_days: u32,
+
+    #[arg(long)]
+    date: String,
+
+    /// RFC3339 with offset (no implicit system clock)
+    #[arg(long)]
+    ts: String,
+}
+
+#[derive(Args, Debug)]
+struct PenaltyTickArgs {
+    #[arg(long)]
+    date: String,
+
+    /// RFC3339 with offset (no implicit system clock)
+    #[arg(long)]
+    ts: String,
+
+    /// Optional idempotency key (informational; tick remains deterministic without it).
+    #[arg(long)]
+    idempotency_key: Option<String>,
+
+    #[arg(long)]
+    include_archived: bool,
+}
+
+#[derive(Args, Debug)]
+struct PenaltyStatusArgs {
+    #[arg(long)]
+    date: Option<String>,
+
+    #[arg(long)]
+    include_archived: bool,
+}
+
+#[derive(Args, Debug)]
+struct PenaltyResolveArgs {
+    debt_id: String,
+
+    #[arg(long)]
+    date: String,
+
+    /// RFC3339 with offset (no implicit system clock)
+    #[arg(long)]
+    ts: String,
+
+    #[arg(long)]
+    reason: String,
+}
+
+#[derive(Args, Debug)]
+struct PenaltyVoidArgs {
+    debt_id: String,
+
+    #[arg(long)]
+    date: String,
+
+    /// RFC3339 with offset (no implicit system clock)
+    #[arg(long)]
+    ts: String,
+
+    #[arg(long)]
+    reason: String,
 }
 
 #[derive(Args, Debug)]
@@ -268,6 +421,8 @@ fn run(cli: Cli) -> Result<(), CliError> {
                     args.target,
                     args.notes.as_deref(),
                     &today,
+                    args.needs_declaration,
+                    args.excuse_quota_per_week,
                 )?;
                 db.habits.push(habit.clone());
                 Ok(habit)
@@ -550,6 +705,255 @@ fn run(cli: Cli) -> Result<(), CliError> {
             }
 
             Ok(())
+        }
+
+        Command::Declare(args) => {
+            ensure_format_supported(cli.format, false)?;
+
+            let decl = update_db(&db_path, |db| {
+                let idx = select_habit_index(db, &args.habit, true)?;
+                let habit = db.habits[idx].clone();
+                crate::declarations::declare(db, &habit.id, &args.date, &args.ts, &args.text)
+            })?;
+
+            if cli.format == Format::Json {
+                #[derive(serde::Serialize)]
+                struct Out {
+                    declaration: crate::model::Declaration,
+                }
+                print_json(&Out {
+                    declaration: decl.clone(),
+                })?;
+            } else {
+                print_line(&format!(
+                    "Declared: {} on {} ({})",
+                    args.habit, decl.date, decl.id
+                ));
+            }
+
+            Ok(())
+        }
+
+        Command::Excuse(args) => {
+            ensure_format_supported(cli.format, false)?;
+
+            let kind = match args.kind {
+                ExcuseKindArg::Allowed => crate::model::ExcuseKind::Allowed,
+                ExcuseKindArg::Denied => crate::model::ExcuseKind::Denied,
+            };
+
+            #[derive(Clone)]
+            struct OutRow {
+                excuse: crate::model::Excuse,
+                used_this_week: u32,
+                remaining_this_week: u32,
+                quota_per_week: u32,
+            }
+
+            let out = update_db(&db_path, |db| {
+                let idx = select_habit_index(db, &args.habit, true)?;
+                let habit = db.habits[idx].clone();
+
+                let quota = habit.excuse_quota_per_week;
+                let (excuse, used, remaining) = crate::excuses::excuse(
+                    db,
+                    &habit.id,
+                    &args.date,
+                    &args.ts,
+                    kind,
+                    &args.reason,
+                    quota,
+                )?;
+
+                Ok(OutRow {
+                    excuse,
+                    used_this_week: used,
+                    remaining_this_week: remaining,
+                    quota_per_week: quota,
+                })
+            })?;
+
+            if cli.format == Format::Json {
+                #[derive(serde::Serialize)]
+                struct Quota {
+                    per_week: u32,
+                    used_this_week: u32,
+                    remaining_this_week: u32,
+                }
+
+                #[derive(serde::Serialize)]
+                struct Out {
+                    excuse: crate::model::Excuse,
+                    quota: Quota,
+                }
+
+                print_json(&Out {
+                    excuse: out.excuse.clone(),
+                    quota: Quota {
+                        per_week: out.quota_per_week,
+                        used_this_week: out.used_this_week,
+                        remaining_this_week: out.remaining_this_week,
+                    },
+                })?;
+            } else {
+                print_line(&format!(
+                    "Excuse recorded: {} on {} ({:?})",
+                    args.habit, args.date, out.excuse.kind
+                ));
+            }
+
+            Ok(())
+        }
+
+        Command::Penalty(args) => {
+            ensure_format_supported(cli.format, false)?;
+
+            match args.command {
+                PenaltyCommand::Arm(a) => {
+                    let rule = update_db(&db_path, |db| {
+                        let idx = select_habit_index(db, &a.habit, true)?;
+                        let habit = db.habits[idx].clone();
+                        crate::penalty::upsert_rule(
+                            db,
+                            &habit.id,
+                            &a.date,
+                            &a.ts,
+                            a.multiplier,
+                            a.cap,
+                            a.deadline_days,
+                        )
+                    })?;
+
+                    if cli.format == Format::Json {
+                        #[derive(serde::Serialize)]
+                        struct Out {
+                            rule: crate::model::PenaltyRule,
+                        }
+                        print_json(&Out { rule: rule.clone() })?;
+                    } else {
+                        print_line(&format!("Armed penalty rule for {} ({})", a.habit, rule.id));
+                    }
+                    Ok(())
+                }
+
+                PenaltyCommand::Tick(t) => {
+                    let created = update_db(&db_path, |db| {
+                        let _ = t.idempotency_key.as_deref();
+                        crate::penalty::tick(db, &t.date, &t.ts, t.include_archived)
+                    })?;
+                    let created_len = created.len();
+
+                    if cli.format == Format::Json {
+                        #[derive(serde::Serialize)]
+                        struct Out {
+                            date: String,
+                            created: Vec<crate::model::PenaltyDebt>,
+                        }
+                        print_json(&Out {
+                            date: t.date.clone(),
+                            created,
+                        })?;
+                    } else {
+                        print_line(&format!(
+                            "Penalty tick complete. Created {} debt(s).",
+                            created_len
+                        ));
+                    }
+                    Ok(())
+                }
+
+                PenaltyCommand::Status(s) | PenaltyCommand::List(s) => {
+                    let db = read_db(&db_path)?;
+                    let date = s.date.as_deref().unwrap_or(&today);
+                    parse_date_string(date, "date")?;
+
+                    let mut debts = crate::penalty::outstanding_debts_as_of(&db, date)?;
+
+                    if !s.include_archived {
+                        let mut archived: std::collections::BTreeSet<String> =
+                            std::collections::BTreeSet::new();
+                        for h in db.habits.iter() {
+                            if h.archived {
+                                archived.insert(h.id.clone());
+                            }
+                        }
+                        debts.retain(|d| !archived.contains(&d.habit_id));
+                    }
+
+                    if cli.format == Format::Json {
+                        #[derive(serde::Serialize)]
+                        struct Out {
+                            date: String,
+                            debts: Vec<crate::model::PenaltyDebt>,
+                        }
+                        print_json(&Out {
+                            date: date.to_string(),
+                            debts: debts.clone(),
+                        })?;
+                    } else {
+                        if debts.is_empty() {
+                            print_line("(no outstanding penalty debts)");
+                        } else {
+                            for d in debts.iter() {
+                                print_line(&format!(
+                                    "- {} {} due {} qty {}",
+                                    d.id, d.habit_id, d.due_date, d.quantity
+                                ));
+                            }
+                        }
+                    }
+
+                    Ok(())
+                }
+
+                PenaltyCommand::Resolve(r) => {
+                    let action = update_db(&db_path, |db| {
+                        crate::penalty::resolve_or_void(
+                            db,
+                            &r.debt_id,
+                            crate::model::PenaltyActionKind::Resolve,
+                            &r.date,
+                            &r.ts,
+                            &r.reason,
+                        )
+                    })?;
+
+                    if cli.format == Format::Json {
+                        #[derive(serde::Serialize)]
+                        struct Out {
+                            action: crate::model::PenaltyAction,
+                        }
+                        print_json(&Out { action })?;
+                    } else {
+                        print_line(&format!("Resolved: {}", r.debt_id));
+                    }
+                    Ok(())
+                }
+
+                PenaltyCommand::Void(v) => {
+                    let action = update_db(&db_path, |db| {
+                        crate::penalty::resolve_or_void(
+                            db,
+                            &v.debt_id,
+                            crate::model::PenaltyActionKind::Void,
+                            &v.date,
+                            &v.ts,
+                            &v.reason,
+                        )
+                    })?;
+
+                    if cli.format == Format::Json {
+                        #[derive(serde::Serialize)]
+                        struct Out {
+                            action: crate::model::PenaltyAction,
+                        }
+                        print_json(&Out { action })?;
+                    } else {
+                        print_line(&format!("Voided: {}", v.debt_id));
+                    }
+                    Ok(())
+                }
+            }
         }
 
         Command::Status(args) => {

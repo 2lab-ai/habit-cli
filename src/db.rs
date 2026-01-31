@@ -51,7 +51,11 @@ fn validate_db_shape(db: &Db) -> Result<(), CliError> {
     if db.version != 1 {
         return Err(CliError::io("DB corrupted"));
     }
-    if db.meta.next_habit_number < 1 {
+    if db.meta.next_habit_number < 1
+        || db.meta.next_declaration_number < 1
+        || db.meta.next_excuse_number < 1
+        || db.meta.next_penalty_rule_number < 1
+    {
         return Err(CliError::io("DB corrupted"));
     }
     Ok(())

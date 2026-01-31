@@ -1,4 +1,4 @@
-use crate::checkins::get_quantity;
+use crate::completion::counted_quantity;
 use crate::date::{add_days, date_range_inclusive, iso_week_end, iso_week_start};
 use crate::error::CliError;
 use crate::habits::{is_scheduled_on, stable_habit_sort};
@@ -41,7 +41,7 @@ fn compute_daily_stats(db: &Db, habit: &Habit, from: &str, to: &str) -> Result<S
 
     let mut successes = 0u32;
     for d in scheduled_days.iter() {
-        if get_quantity(db, &habit.id, d) >= habit.target.quantity {
+        if counted_quantity(db, habit, d) >= habit.target.quantity {
             successes += 1;
         }
     }
@@ -55,7 +55,7 @@ fn compute_daily_stats(db: &Db, habit: &Habit, from: &str, to: &str) -> Result<S
 
     let mut current = 0u32;
     for d in scheduled_days.iter().rev() {
-        let ok = get_quantity(db, &habit.id, d) >= habit.target.quantity;
+        let ok = counted_quantity(db, habit, d) >= habit.target.quantity;
         if !ok {
             break;
         }
@@ -65,7 +65,7 @@ fn compute_daily_stats(db: &Db, habit: &Habit, from: &str, to: &str) -> Result<S
     let mut longest = 0u32;
     let mut run = 0u32;
     for d in scheduled_days.iter() {
-        let ok = get_quantity(db, &habit.id, d) >= habit.target.quantity;
+        let ok = counted_quantity(db, habit, d) >= habit.target.quantity;
         if ok {
             run += 1;
             longest = longest.max(run);
@@ -102,7 +102,7 @@ fn week_sum_for_habit(db: &Db, habit: &Habit, week_start_date: &str) -> Result<u
         if d < habit.created_date {
             continue;
         }
-        sum = sum.saturating_add(get_quantity(db, &habit.id, &d));
+        sum = sum.saturating_add(counted_quantity(db, habit, &d));
     }
     Ok(sum)
 }
