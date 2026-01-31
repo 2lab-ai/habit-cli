@@ -5,6 +5,9 @@
   "license": "MIT",
   "private": true,
   "type": "commonjs",
+  "bin": {
+    "habit": "./bin/habit.js"
+  },
   "engines": {
     "node": ">=18"
   },

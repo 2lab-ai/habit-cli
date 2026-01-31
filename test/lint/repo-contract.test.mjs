@@ -15,3 +15,31 @@ test('docs include determinism hooks (HABITCLI_DB_PATH and --today)', () => {
   assert.ok(text.includes('HABITCLI_DB_PATH'));
   assert.ok(text.includes('--today'));
 });
+
+test('package.json has required fields for CLI distribution', () => {
+  const pkgPath = path.join(process.cwd(), 'package.json');
+  assert.ok(fs.existsSync(pkgPath), 'expected package.json to exist');
+
+  const pkg = JSON.parse(fs.readFileSync(pkgPath, 'utf8'));
+
+  // Basic metadata
+  assert.ok(pkg.name, 'package.json should have a name');
+  assert.ok(pkg.version, 'package.json should have a version');
+  assert.ok(pkg.description, 'package.json should have a description');
+  assert.ok(pkg.license, 'package.json should have a license');
+
+  // Engine requirements
+  assert.ok(pkg.engines?.node, 'package.json should specify node engine version');
+
+  // CLI entrypoint
+  assert.ok(pkg.bin, 'package.json should have a bin field for CLI');
+  const binPath = typeof pkg.bin === 'string' ? pkg.bin : Object.values(pkg.bin)[0];
+  assert.ok(binPath, 'bin field should specify an entrypoint');
+
+  // Verify bin file exists
+  const fullBinPath = path.join(process.cwd(), binPath);
+  assert.ok(fs.existsSync(fullBinPath), `bin entrypoint should exist: ${binPath}`);
+
+  // Required scripts
+  assert.ok(pkg.scripts?.test, 'package.json should have a test script');
+});
