@@ -495,31 +495,29 @@ async function runCli(argv) {
       habits = db.habits.filter((h) => !h.archived);
     }
 
-    // Determine range defaults based on habit periods when selector omitted.
-    let from = opts.from || null;
-    let to = opts.to || null;
-    if (to) parseDateString(to, 'to');
-    if (from) parseDateString(from, 'from');
+    const fromArg = opts.from || null;
+    const toArg = opts.to || null;
 
-    const toEff = to || today;
+    if (fromArg) parseDateString(fromArg, 'from');
+    if (toArg) parseDateString(toArg, 'to');
+    if (fromArg && toArg && fromArg > toArg) throw usageError('Invalid range: from > to');
 
-    if (!from) {
-      // If multiple habits with mixed periods, choose a broad window (30 days).
-      const allWeek = habits.every((h) => h.target.period === 'week');
-      if (allWeek) {
-        // last 12 weeks ending this week
-        const endWeek = isoWeekStart(toEff);
-        from = addDays(endWeek, -7 * (12 - 1));
-        to = addDays(endWeek, 6);
-      } else {
-        from = addDays(toEff, -29);
-        to = toEff;
+    const rows = buildStats(db, habits, {
+      windowForHabit: (h) => {
+        if (h.target.period === 'day') {
+          const to = toArg || today;
+          const from = fromArg || addDays(to, -29);
+          return { from, to };
+        }
+
+        // Weekly-target: default window is last 12 ISO weeks ending this week.
+        const base = toArg || today;
+        const endWeekStart = isoWeekStart(base);
+        const to = toArg || addDays(endWeekStart, 6);
+        const from = fromArg || addDays(isoWeekStart(to), -7 * (12 - 1));
+        return { from, to };
       }
-    } else {
-      to = toEff;
-    }
-
-    const rows = buildStats(db, habits, { from, to });
+    });
 
     if (format === 'json') {
       printJson({ stats: rows });

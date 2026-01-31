@@ -77,6 +77,36 @@ describe('habit-cli integration (MVP contract)', () => {
         assert.equal(habits.length, 0);
       }
 
+      // 0b) exit codes should match the CLI contract (usage=2, not found=3, ambiguous=4)
+      {
+        const dbErrPath = path.join(tmpDir, 'db-errors.json');
+        const env = sharedEnv(dbErrPath);
+
+        runHabit([...globalArgs(dbErrPath), 'add', 'Stretch', '--format', 'json'], {
+          env,
+          expectExitCode: 0
+        });
+        runHabit([...globalArgs(dbErrPath), 'add', 'Step', '--format', 'json'], {
+          env,
+          expectExitCode: 0
+        });
+
+        runHabit([...globalArgs(dbErrPath), 'show', 'does-not-exist'], {
+          env,
+          expectExitCode: 3
+        });
+
+        runHabit([...globalArgs(dbErrPath), 'show', 'st'], {
+          env,
+          expectExitCode: 4
+        });
+
+        runHabit([...globalArgs(dbErrPath), 'checkin', 'Stretch', '--qty', '0'], {
+          env,
+          expectExitCode: 2
+        });
+      }
+
       // 1) add a daily habit
       {
         const r = runHabit(

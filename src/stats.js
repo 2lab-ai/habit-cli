@@ -117,12 +117,15 @@ function computeWeeklyStats(db, habit, { from, to }) {
   };
 }
 
-function buildStats(db, habits, { from, to }) {
+function buildStats(db, habits, { from, to, windowForHabit } = {}) {
   const sortedHabits = habits.slice().sort(stableHabitSort);
   const rows = [];
   for (const h of sortedHabits) {
-    if (h.target.period === 'day') rows.push(computeDailyStats(db, h, { from, to }));
-    else rows.push(computeWeeklyStats(db, h, { from, to }));
+    const w = windowForHabit ? windowForHabit(h) : { from, to };
+    if (!w || !w.from || !w.to) throw new Error('Stats window is required');
+
+    if (h.target.period === 'day') rows.push(computeDailyStats(db, h, { from: w.from, to: w.to }));
+    else rows.push(computeWeeklyStats(db, h, { from: w.from, to: w.to }));
   }
   return rows;
 }
