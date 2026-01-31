@@ -3,6 +3,7 @@ mod completion;
 mod date;
 mod db;
 mod declarations;
+mod due;
 mod error;
 mod excuses;
 mod export;
@@ -30,6 +31,7 @@ use crate::habits::{
 use crate::output::{render_simple_table, Styler};
 use crate::schedule::schedule_to_string;
 use crate::stable_json::stable_to_string_pretty;
+use crate::due::build_due;
 use crate::recap::{build_recap, render_progress_bar, RecapRange};
 use crate::stats::build_stats;
 use crate::status::build_status;
@@ -85,6 +87,7 @@ struct Cli {
 #[derive(Subcommand, Debug)]
 enum Command {
     Add(AddArgs),
+    Edit(EditArgs),
     List(ListArgs),
     Show(SelectorArgs),
     Archive(SelectorArgs),
@@ -97,6 +100,8 @@ enum Command {
     Stats(StatsArgs),
     /// HelloHabit-style recap: completion percentages per habit over a time range.
     Recap(RecapArgs),
+    /// Show habits that are due (scheduled and not yet complete) for a given date.
+    Due(DueArgs),
     Export(ExportArgs),
 }
 
@@ -127,6 +132,29 @@ struct AddArgs {
     /// Maximum number of allowed excused days per ISO week.
     #[arg(long, default_value_t = 2)]
     excuse_quota_per_week: u32,
+}
+
+#[derive(Args, Debug)]
+struct EditArgs {
+    /// Habit selector: exact id (h0001) or unique name prefix (case-insensitive)
+    habit: String,
+
+    #[arg(long)]
+    name: Option<String>,
+
+    /// One of: everyday, weekdays, weekends, mon,tue,...,sun
+    #[arg(long)]
+    schedule: Option<String>,
+
+    #[arg(long, value_enum)]
+    period: Option<Period>,
+
+    /// Integer >= 1
+    #[arg(long)]
+    target: Option<u32>,
+
+    #[arg(long)]
+    notes: Option<String>,
 }
 
 #[derive(Args, Debug)]
@@ -356,6 +384,17 @@ struct RecapArgs {
 }
 
 #[derive(Args, Debug)]
+struct DueArgs {
+    /// The date to check (defaults to today)
+    #[arg(long)]
+    date: Option<String>,
+
+    /// Include archived habits
+    #[arg(long)]
+    include_archived: bool,
+}
+
+#[derive(Args, Debug)]
 struct ExportArgs {
     #[arg(long)]
     out: Option<String>,
@@ -475,6 +514,72 @@ fn run(cli: Cli) -> Result<(), CliError> {
                     created.name.clone(),
                     schedule_to_string(&created.schedule),
                     format!("{}/{}", created.target.quantity, created.target.period),
+                ];
+                print_line(&render_simple_table(
+                    &["id", "name", "schedule", "target"],
+                    &[row],
+                ));
+            }
+
+            Ok(())
+        }
+
+        Command::Edit(args) => {
+            ensure_format_supported(cli.format, false)?;
+
+            if args.name.is_none()
+                && args.schedule.is_none()
+                && args.period.is_none()
+                && args.target.is_none()
+                && args.notes.is_none()
+            {
+                return Err(CliError::usage("No updates specified"));
+            }
+
+            let updated = update_db(&db_path, |db| {
+                let idx = select_habit_index(db, &args.habit, true)?;
+                let habit = &mut db.habits[idx];
+
+                if let Some(ref n) = args.name {
+                    habit.name = crate::habits::validate_habit_name(n)?;
+                }
+
+                if let Some(ref s) = args.schedule {
+                    let schedule = crate::schedule::parse_schedule_pattern(s)?;
+                    crate::schedule::validate_schedule(&schedule)?;
+                    habit.schedule = schedule;
+                }
+
+                if let Some(p) = args.period {
+                    habit.target.period = p.as_str().to_string();
+                }
+
+                if let Some(t) = args.target {
+                    if t < 1 {
+                        return Err(CliError::usage("Invalid target"));
+                    }
+                    habit.target.quantity = t;
+                }
+
+                if let Some(ref notes) = args.notes {
+                    habit.notes = Some(notes.to_string());
+                }
+
+                Ok(habit.clone())
+            })?;
+
+            if cli.format == Format::Json {
+                #[derive(serde::Serialize)]
+                struct Out {
+                    habit: crate::model::Habit,
+                }
+                print_json(&Out { habit: updated })?;
+            } else {
+                let row = vec![
+                    updated.id.clone(),
+                    updated.name.clone(),
+                    schedule_to_string(&updated.schedule),
+                    format!("{}/{}", updated.target.quantity, updated.target.period),
                 ];
                 print_line(&render_simple_table(
                     &["id", "name", "schedule", "target"],
@@ -1193,6 +1298,51 @@ fn run(cli: Cli) -> Result<(), CliError> {
                         &table_rows,
                     ));
                 }
+            }
+
+            Ok(())
+        }
+
+        Command::Due(args) => {
+            ensure_format_supported(cli.format, false)?;
+
+            let date = args.date.as_deref().unwrap_or(&today);
+            parse_date_string(date, "date")?;
+
+            let db = read_db(&db_path)?;
+            let data = build_due(&db, date, args.include_archived)?;
+
+            if cli.format == Format::Json {
+                print_json(&data)?;
+            } else {
+                print_line(&format!("Due ({})", data.date));
+                if data.due.is_empty() {
+                    print_line(&styler.gray("(no habits due)"));
+                } else {
+                    let rows: Vec<Vec<String>> = data
+                        .due
+                        .iter()
+                        .map(|h| {
+                            let progress = if h.period == "day" {
+                                format!("{}/{}", h.quantity, h.target)
+                            } else {
+                                format!("{}/{} (weekly)", h.quantity, h.target)
+                            };
+                            vec![
+                                h.id.clone(),
+                                h.name.clone(),
+                                progress,
+                                h.remaining.to_string(),
+                            ]
+                        })
+                        .collect();
+                    print_line(&render_simple_table(
+                        &["id", "name", "progress", "remaining"],
+                        &rows,
+                    ));
+                }
+                print_line("");
+                print_line(&format!("Total due: {}", data.counts.due));
             }
 
             Ok(())
