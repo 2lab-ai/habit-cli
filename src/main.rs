@@ -740,7 +740,12 @@ fn run_cli(argv: &[String]) -> Result<(), CliError> {
                         ));
                     }
                     crate::status::WeekHabitRow::Week(r) => {
-                        print_line(&format!("- {} {}/{} (weekly)", r.name, r.quantity, r.target));
+                        print_line(&format!(
+                            "- {} {}/{} (weekly)",
+                            r.name,
+                            r.quantity,
+                            r.target
+                        ));
                     }
                 }
             }
@@ -757,7 +762,9 @@ fn run_cli(argv: &[String]) -> Result<(), CliError> {
 
         let parsed = parse_command_opts(&cmd_args, &allowed)?;
         if opt_bool(&parsed, "help") {
-            return Err(CliError::usage("Usage: habit stats [<habit>] [--from YYYY-MM-DD] [--to YYYY-MM-DD]"));
+            return Err(CliError::usage(
+                "Usage: habit stats [<habit>] [--from YYYY-MM-DD] [--to YYYY-MM-DD]",
+            ));
         }
 
         let selector = parsed.positionals.get(0).map(|s| s.as_str());
@@ -829,7 +836,12 @@ fn run_cli(argv: &[String]) -> Result<(), CliError> {
                     r.period.clone(),
                     r.current_streak.to_string(),
                     r.longest_streak.to_string(),
-                    format!("{} ({}/{})", rate, r.success_rate.successes, r.success_rate.eligible),
+                    format!(
+                        "{} ({}/{})",
+                        rate,
+                        r.success_rate.successes,
+                        r.success_rate.eligible
+                    ),
                 ]);
             }
 
@@ -893,8 +905,13 @@ fn run_cli(argv: &[String]) -> Result<(), CliError> {
                 checkins: Vec<crate::model::Checkin>,
             }
 
-            let payload = Payload { version: 1, habits, checkins };
-            let data = stable_to_string_pretty(&payload).map_err(|_| CliError::io("DB IO error"))? + "\n";
+            let payload = Payload {
+                version: 1,
+                habits,
+                checkins,
+            };
+            let data =
+                stable_to_string_pretty(&payload).map_err(|_| CliError::io("DB IO error"))? + "\n";
 
             if let Some(p) = out {
                 fs::write(p, data.as_bytes()).map_err(|_| CliError::io("DB IO error"))?;

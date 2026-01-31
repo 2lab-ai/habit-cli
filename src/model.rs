@@ -41,7 +41,9 @@ pub struct Checkin {
 pub fn default_db() -> Db {
     Db {
         version: 1,
-        meta: Meta { next_habit_number: 1 },
+        meta: Meta {
+            next_habit_number: 1,
+        },
         habits: Vec::new(),
         checkins: Vec::new(),
     }

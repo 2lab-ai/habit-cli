@@ -165,7 +165,12 @@ fn mvp_flow_is_deterministic_in_json_mode() {
         assert_eq!(out1.status.code(), Some(0), "stderr: {}", stderr_str(&out1));
         let j1: serde_json::Value = serde_json::from_str(stdout_str(&out1).trim()).unwrap();
         assert_eq!(
-            j1.get("habit").unwrap().get("id").unwrap().as_str().unwrap(),
+            j1.get("habit")
+                .unwrap()
+                .get("id")
+                .unwrap()
+                .as_str()
+                .unwrap(),
             stretch_id
         );
 
