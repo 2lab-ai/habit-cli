@@ -162,14 +162,26 @@ fn compute_weekly_stats(db: &Db, habit: &Habit, from: &str, to: &str) -> Result<
         name: habit.name.clone(),
         period: "week".to_string(),
         target: habit.target.quantity,
-        window: Window { from: from.to_string(), to: to.to_string() },
+        window: Window {
+            from: from.to_string(),
+            to: to.to_string(),
+        },
         current_streak: current,
         longest_streak: longest,
-        success_rate: SuccessRate { successes, eligible, rate },
+        success_rate: SuccessRate {
+            successes,
+            eligible,
+            rate,
+        },
     })
 }
 
-pub fn build_stats(db: &Db, habits: &[Habit], from: &str, to: &str) -> Result<Vec<StatsRow>, CliError> {
+pub fn build_stats(
+    db: &Db,
+    habits: &[Habit],
+    from: &str,
+    to: &str,
+) -> Result<Vec<StatsRow>, CliError> {
     let mut sorted: Vec<Habit> = habits.to_vec();
     sorted.sort_by(stable_habit_sort);
 

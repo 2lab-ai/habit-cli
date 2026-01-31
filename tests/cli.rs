@@ -328,7 +328,14 @@ fn archive_and_list_visibility() {
 
     // list --all includes archived
     let out = habit_cmd()
-        .args(["--db", db.to_str().unwrap(), "--format", "json", "list", "--all"])
+        .args([
+            "--db",
+            db.to_str().unwrap(),
+            "--format",
+            "json",
+            "list",
+            "--all",
+        ])
         .assert()
         .success()
         .get_output()
