@@ -42,7 +42,11 @@ pub fn list_habits(db: &Db, include_archived: bool) -> Vec<Habit> {
     out
 }
 
-pub fn select_habit_index(db: &Db, selector: &str, include_archived: bool) -> Result<usize, CliError> {
+pub fn select_habit_index(
+    db: &Db,
+    selector: &str,
+    include_archived: bool,
+) -> Result<usize, CliError> {
     let s = selector.trim();
     if s.is_empty() {
         return Err(CliError::usage("Habit selector is required"));
@@ -54,12 +58,18 @@ pub fn select_habit_index(db: &Db, selector: &str, include_archived: bool) -> Re
             Some(i) => {
                 let h = &db.habits[i];
                 if !include_archived && h.archived {
-                    Err(CliError::not_found(format!("Habit not found: {}", selector)))
+                    Err(CliError::not_found(format!(
+                        "Habit not found: {}",
+                        selector
+                    )))
                 } else {
                     Ok(i)
                 }
             }
-            None => Err(CliError::not_found(format!("Habit not found: {}", selector))),
+            None => Err(CliError::not_found(format!(
+                "Habit not found: {}",
+                selector
+            ))),
         };
     }
 
@@ -76,7 +86,10 @@ pub fn select_habit_index(db: &Db, selector: &str, include_archived: bool) -> Re
     matches.sort_by(|a, b| stable_habit_sort(&a.1, &b.1));
 
     if matches.is_empty() {
-        return Err(CliError::not_found(format!("Habit not found: {}", selector)));
+        return Err(CliError::not_found(format!(
+            "Habit not found: {}",
+            selector
+        )));
     }
 
     if matches.len() > 1 {
@@ -86,7 +99,7 @@ pub fn select_habit_index(db: &Db, selector: &str, include_archived: bool) -> Re
             .collect::<Vec<String>>()
             .join(", ");
         return Err(CliError::ambiguous(format!(
-            "Ambiguous habit selector '{}': {}",
+            "Ambiguous selector '{}'. Candidates: {}",
             selector, candidates
         )));
     }
@@ -121,7 +134,10 @@ pub fn make_habit(
         id,
         name: habit_name,
         schedule,
-        target: Target { period: period.to_string(), quantity: target },
+        target: Target {
+            period: period.to_string(),
+            quantity: target,
+        },
         notes,
         archived: false,
         created_date: today.to_string(),

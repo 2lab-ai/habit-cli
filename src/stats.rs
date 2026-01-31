@@ -113,7 +113,7 @@ fn week_range_inclusive(
 ) -> Result<Vec<String>, CliError> {
     let mut weeks: Vec<String> = Vec::new();
     let mut cur = from_week_start.to_string();
-    while cur <= to_week_start {
+    while cur.as_str() <= to_week_start {
         weeks.push(cur.clone());
         cur = add_days(&cur, 7)?;
     }

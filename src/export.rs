@@ -17,10 +17,18 @@ fn csv_escape(value: &str) -> String {
 }
 
 fn to_csv_line(values: &[String]) -> String {
-    values.iter().map(|v| csv_escape(v)).collect::<Vec<String>>().join(",")
+    values
+        .iter()
+        .map(|v| csv_escape(v))
+        .collect::<Vec<String>>()
+        .join(",")
 }
 
-pub fn export_csv_to_dir(out_dir: &str, habits: &[Habit], checkins: &[Checkin]) -> Result<(), CliError> {
+pub fn export_csv_to_dir(
+    out_dir: &str,
+    habits: &[Habit],
+    checkins: &[Checkin],
+) -> Result<(), CliError> {
     let out_path = Path::new(out_dir);
     fs::create_dir_all(out_path).map_err(|_| CliError::io("DB IO error"))?;
 
@@ -54,7 +62,11 @@ pub fn export_csv_to_dir(out_dir: &str, habits: &[Habit], checkins: &[Checkin]) 
             h.target.period.clone(),
             h.target.quantity.to_string(),
             h.notes.clone().unwrap_or_default(),
-            if h.archived { "true".to_string() } else { "false".to_string() },
+            if h.archived {
+                "true".to_string()
+            } else {
+                "false".to_string()
+            },
             h.created_date.clone(),
             h.archived_date.clone().unwrap_or_default(),
         ]));

@@ -21,7 +21,11 @@ fn is_valid_date(y: i32, m: u32, d: u32) -> bool {
         4 | 6 | 9 | 11 => 30,
         2 => {
             let leap = (y % 4 == 0 && y % 100 != 0) || (y % 400 == 0);
-            if leap { 29 } else { 28 }
+            if leap {
+                29
+            } else {
+                28
+            }
         }
         _ => return false,
     };

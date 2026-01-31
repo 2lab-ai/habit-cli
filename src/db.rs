@@ -98,7 +98,10 @@ impl Drop for WriteLock {
     }
 }
 
-fn with_write_lock<R>(db_path: &str, f: impl FnOnce() -> Result<R, CliError>) -> Result<R, CliError> {
+fn with_write_lock<R>(
+    db_path: &str,
+    f: impl FnOnce() -> Result<R, CliError>,
+) -> Result<R, CliError> {
     let lock_path = PathBuf::from(format!("{}.lock", db_path));
 
     match OpenOptions::new()
@@ -167,7 +170,10 @@ fn write_db_inner(db_path: &str, db: &Db) -> Result<(), CliError> {
     Ok(())
 }
 
-pub fn update_db<R>(db_path: &str, mutator: impl FnOnce(&mut Db) -> Result<R, CliError>) -> Result<R, CliError> {
+pub fn update_db<R>(
+    db_path: &str,
+    mutator: impl FnOnce(&mut Db) -> Result<R, CliError>,
+) -> Result<R, CliError> {
     ensure_parent_dir(db_path)?;
     with_write_lock(db_path, || {
         let mut db = read_db(db_path)?;

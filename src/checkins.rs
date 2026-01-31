@@ -16,7 +16,12 @@ pub fn get_quantity(db: &Db, habit_id: &str, date: &str) -> u32 {
     }
 }
 
-pub fn set_quantity(db: &mut Db, habit_id: &str, date: &str, quantity: u32) -> Result<(), CliError> {
+pub fn set_quantity(
+    db: &mut Db,
+    habit_id: &str,
+    date: &str,
+    quantity: u32,
+) -> Result<(), CliError> {
     parse_date_string(date, "date")?;
 
     let idx = find_checkin_index(db, habit_id, date);
@@ -87,12 +92,12 @@ pub fn list_checkins_in_range(
                 }
             }
             if let Some(f) = from {
-                if c.date < f {
+                if c.date.as_str() < f {
                     return false;
                 }
             }
             if let Some(t) = to {
-                if c.date > t {
+                if c.date.as_str() > t {
                     return false;
                 }
             }
