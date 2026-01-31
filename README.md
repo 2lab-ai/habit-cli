@@ -12,7 +12,7 @@ Repo    : https://github.com/2lab-ai/habit-cli
 ──────────────────────────────────────────────────────────────────
 ```
 
-# habit-cli
+# habit-cli for OpenClaw
 
 Local-first habit/routine tracking CLI (single JSON file).
 
