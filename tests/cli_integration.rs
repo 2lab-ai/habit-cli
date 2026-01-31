@@ -1135,6 +1135,54 @@ fn recap_json_shape_and_deterministic_values() {
         // Should contain percentages
         assert!(output.contains("%"));
     }
+
+    // Test --behind-first flag: should sort lowest completion first
+    {
+        let mut args: Vec<&str> = Vec::new();
+        args.extend_from_slice(&global);
+        args.extend_from_slice(&["recap", "--range", "month", "--behind-first", "--format", "json"]);
+
+        let out = run_habit(&args, &shared_env);
+        assert_eq!(out.status.code(), Some(0), "stderr: {}", stderr_str(&out));
+
+        let json: serde_json::Value =
+            serde_json::from_str(&stdout_str(&out)).expect("valid JSON");
+        let recap = json.get("recap").and_then(|v| v.as_array()).unwrap();
+        assert_eq!(recap.len(), 2);
+
+        // With --behind-first, lower percentage should come first
+        let first_pct = recap[0].get("percent").and_then(|v| v.as_u64()).unwrap();
+        let second_pct = recap[1].get("percent").and_then(|v| v.as_u64()).unwrap();
+        assert!(
+            first_pct <= second_pct,
+            "With --behind-first, first habit ({}%) should have <= percentage than second ({}%)",
+            first_pct, second_pct
+        );
+    }
+
+    // Test default ordering (without --behind-first): highest completion first
+    {
+        let mut args: Vec<&str> = Vec::new();
+        args.extend_from_slice(&global);
+        args.extend_from_slice(&["recap", "--range", "month", "--format", "json"]);
+
+        let out = run_habit(&args, &shared_env);
+        assert_eq!(out.status.code(), Some(0), "stderr: {}", stderr_str(&out));
+
+        let json: serde_json::Value =
+            serde_json::from_str(&stdout_str(&out)).expect("valid JSON");
+        let recap = json.get("recap").and_then(|v| v.as_array()).unwrap();
+        assert_eq!(recap.len(), 2);
+
+        // Without --behind-first, higher percentage should come first (default)
+        let first_pct = recap[0].get("percent").and_then(|v| v.as_u64()).unwrap();
+        let second_pct = recap[1].get("percent").and_then(|v| v.as_u64()).unwrap();
+        assert!(
+            first_pct >= second_pct,
+            "Default ordering: first habit ({}%) should have >= percentage than second ({}%)",
+            first_pct, second_pct
+        );
+    }
 }
 
 #[test]

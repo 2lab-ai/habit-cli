@@ -381,6 +381,10 @@ struct RecapArgs {
     /// Include archived habits
     #[arg(long)]
     include_archived: bool,
+
+    /// Sort habits with lowest completion first (behind schedule first)
+    #[arg(long)]
+    behind_first: bool,
 }
 
 #[derive(Args, Debug)]
@@ -1251,7 +1255,7 @@ fn run(cli: Cli) -> Result<(), CliError> {
                 .cloned()
                 .collect();
 
-            let rows = build_recap(&db, &habits, args.range.to_recap_range(), &today)?;
+            let rows = build_recap(&db, &habits, args.range.to_recap_range(), &today, args.behind_first)?;
 
             if cli.format == Format::Json {
                 #[derive(serde::Serialize)]

@@ -229,11 +229,15 @@ fn compute_weekly_recap(
 }
 
 /// Build recap rows for given habits over the specified range.
+///
+/// If `behind_first` is true, habits are sorted by completion % ascending
+/// (lowest/behind schedule first). Otherwise, sorted descending (best first).
 pub fn build_recap(
     db: &Db,
     habits: &[Habit],
     range: RecapRange,
     today: &str,
+    behind_first: bool,
 ) -> Result<Vec<RecapRow>, CliError> {
     let (from, to) = compute_range_dates(range, today)?;
 
@@ -250,10 +254,17 @@ pub fn build_recap(
         rows.push(row);
     }
 
-    // Sort by percentage descending (None at bottom), then by name
+    // Sort by percentage (ascending if behind_first, descending otherwise)
+    // None values always at bottom, then tie-break by name
     rows.sort_by(|a, b| {
         match (a.percent, b.percent) {
-            (Some(ap), Some(bp)) => bp.cmp(&ap), // Descending
+            (Some(ap), Some(bp)) => {
+                if behind_first {
+                    ap.cmp(&bp) // Ascending: lowest first
+                } else {
+                    bp.cmp(&ap) // Descending: highest first
+                }
+            }
             (Some(_), None) => std::cmp::Ordering::Less,
             (None, Some(_)) => std::cmp::Ordering::Greater,
             (None, None) => a.name.to_lowercase().cmp(&b.name.to_lowercase()),
