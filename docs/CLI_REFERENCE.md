@@ -299,7 +299,66 @@ habit stats [<habit>] [--from YYYY-MM-DD] [--to YYYY-MM-DD] [--format table|json
 
 ---
 
-## 3.12 `habit export`
+## 3.12 `habit recap`
+HelloHabit-style recap: completion percentages per habit over a time range.
+
+**Usage**
+```bash
+habit recap [--range ytd|month|week] [--include-archived] [--format table|json]
+```
+
+**Options**
+- `--range <ytd|month|week>`
+  - Default: `month`
+  - `ytd`: Year-to-date (Jan 1 through today)
+  - `month`: Past 30 days including today
+  - `week`: Past 7 days including today
+- `--include-archived`
+  - Include archived habits in the recap.
+
+**Output (table)**
+Displays a HelloHabit-style list with:
+- Habit name
+- Target label (e.g., "8/day", "3/week")
+- Completion percentage
+- Visual progress bar
+- Success ratio (successes/eligible)
+
+Habits are sorted by completion percentage (descending).
+
+**Output (JSON)**
+```json
+{
+  "recap": [
+    {
+      "habit_id": "h0001",
+      "name": "Water",
+      "period": "day",
+      "target_label": "8/day",
+      "target": 8,
+      "successes": 25,
+      "eligible": 30,
+      "rate": 0.833,
+      "percent": 83,
+      "range": {
+        "kind": "month",
+        "from": "2026-01-02",
+        "to": "2026-01-31"
+      }
+    }
+  ]
+}
+```
+
+**Completion calculation**
+- **Daily habits**: `successes / eligible_days` where success = counted_quantity >= target on a scheduled day
+- **Weekly habits**: `successful_weeks / eligible_weeks` where success = week_sum >= target
+
+Dates/weeks before a habit's `created_date` do not count toward eligible periods.
+
+---
+
+## 3.13 `habit export`
 Export habits + check-ins.
 
 **Usage**

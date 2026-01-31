@@ -10,6 +10,7 @@ mod habits;
 mod model;
 mod output;
 mod penalty;
+mod recap;
 mod schedule;
 mod stable_json;
 mod stats;
@@ -29,6 +30,7 @@ use crate::habits::{
 use crate::output::{render_simple_table, Styler};
 use crate::schedule::schedule_to_string;
 use crate::stable_json::stable_to_string_pretty;
+use crate::recap::{build_recap, render_progress_bar, RecapRange};
 use crate::stats::build_stats;
 use crate::status::build_status;
 use clap::{Args, Parser, Subcommand, ValueEnum};
@@ -93,6 +95,8 @@ enum Command {
     Penalty(PenaltyArgs),
     Status(StatusArgs),
     Stats(StatsArgs),
+    /// HelloHabit-style recap: completion percentages per habit over a time range.
+    Recap(RecapArgs),
     Export(ExportArgs),
 }
 
@@ -318,6 +322,37 @@ struct StatsArgs {
 
     #[arg(long)]
     to: Option<String>,
+}
+
+#[derive(Copy, Clone, Debug, Eq, PartialEq, ValueEnum)]
+enum Range {
+    /// Year-to-date (Jan 1 through today)
+    Ytd,
+    /// Past 30 days including today
+    Month,
+    /// Past 7 days including today
+    Week,
+}
+
+impl Range {
+    fn to_recap_range(self) -> RecapRange {
+        match self {
+            Range::Ytd => RecapRange::Ytd,
+            Range::Month => RecapRange::Month,
+            Range::Week => RecapRange::Week,
+        }
+    }
+}
+
+#[derive(Args, Debug)]
+struct RecapArgs {
+    /// Time range for recap
+    #[arg(long, value_enum, default_value = "month")]
+    range: Range,
+
+    /// Include archived habits
+    #[arg(long)]
+    include_archived: bool,
 }
 
 #[derive(Args, Debug)]
@@ -1095,6 +1130,69 @@ fn run(cli: Cli) -> Result<(), CliError> {
                     &["id", "name", "period", "current", "longest", "success"],
                     &table_rows,
                 ));
+            }
+
+            Ok(())
+        }
+
+        Command::Recap(args) => {
+            ensure_format_supported(cli.format, false)?;
+
+            let db = read_db(&db_path)?;
+            let habits: Vec<crate::model::Habit> = db
+                .habits
+                .iter()
+                .filter(|h| args.include_archived || !h.archived)
+                .cloned()
+                .collect();
+
+            let rows = build_recap(&db, &habits, args.range.to_recap_range(), &today)?;
+
+            if cli.format == Format::Json {
+                #[derive(serde::Serialize)]
+                struct Out {
+                    recap: Vec<crate::recap::RecapRow>,
+                }
+                print_json(&Out { recap: rows })?;
+            } else {
+                if rows.is_empty() {
+                    print_line(&styler.gray("(no habits to recap)"));
+                } else {
+                    // HelloHabit-style table with progress bars
+                    let bar_width = 10;
+
+                    let mut table_rows: Vec<Vec<String>> = Vec::new();
+                    for r in rows.iter() {
+                        let pct_str = match r.percent {
+                            Some(p) => format!("{}%", p),
+                            None => "n/a".to_string(),
+                        };
+                        let bar = render_progress_bar(r.percent, bar_width);
+                        let ratio = format!("{}/{}", r.successes, r.eligible);
+
+                        table_rows.push(vec![
+                            r.name.clone(),
+                            r.target_label.clone(),
+                            pct_str,
+                            bar,
+                            ratio,
+                        ]);
+                    }
+
+                    // Print range info header
+                    if let Some(first) = rows.first() {
+                        print_line(&format!(
+                            "Recap ({}) {} to {}",
+                            first.range.kind, first.range.from, first.range.to
+                        ));
+                        print_line("");
+                    }
+
+                    print_line(&render_simple_table(
+                        &["name", "target", "%", "progress", "ratio"],
+                        &table_rows,
+                    ));
+                }
             }
 
             Ok(())

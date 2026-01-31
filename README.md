@@ -88,6 +88,22 @@ habit stats
 habit stats stretch --from 2026-01-01 --to 2026-01-31
 ```
 
+Recap (HelloHabit-style completion percentages):
+
+```bash
+# Default: past 30 days
+habit recap
+
+# Year-to-date
+habit recap --range ytd
+
+# Past week
+habit recap --range week
+
+# JSON output
+habit recap --format json
+```
+
 Export:
 
 ```bash
