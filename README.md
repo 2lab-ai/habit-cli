@@ -1,3 +1,17 @@
+```text
+ _   _    _    ____ ___ _____   ____ _     ___
+| | | |  / \  | __ )_ _|_   _| / ___| |   |_ _|
+| |_| | / _ \ |  _ \| |  | |  | |   | |    | |
+|  _  |/ ___ \| |_) | |  | |  | |___| |___ | |
+|_| |_/_/   \_\____/___| |_|   \____|_____|___|
+
+────────────────────── RELEASE INFORMATION ──────────────────────
+Title   : HABIT-CLI  (local-first habit tracking)
+Build   : Rust CLI • deterministic outputs • JSON-friendly
+Repo    : https://github.com/2lab-ai/habit-cli
+──────────────────────────────────────────────────────────────────
+```
+
 # habit-cli
 
 Local-first habit/routine tracking CLI (single JSON file).
