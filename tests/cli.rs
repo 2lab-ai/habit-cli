@@ -149,7 +149,10 @@ fn ambiguous_selector_exit_code_4() {
         .assert()
         .failure()
         .code(4)
-        .stderr(predicate::str::contains("ambiguous selector").and(predicate::str::contains("candidates")));
+        .stderr(
+            predicate::str::contains("ambiguous selector")
+                .and(predicate::str::contains("candidates")),
+        );
 }
 
 #[test]
@@ -313,13 +316,7 @@ fn archive_and_list_visibility() {
 
     // list excludes archived by default
     let out = habit_cmd()
-        .args([
-            "--db",
-            db.to_str().unwrap(),
-            "--format",
-            "json",
-            "list",
-        ])
+        .args(["--db", db.to_str().unwrap(), "--format", "json", "list"])
         .assert()
         .success()
         .get_output()
@@ -331,14 +328,7 @@ fn archive_and_list_visibility() {
 
     // list --all includes archived
     let out = habit_cmd()
-        .args([
-            "--db",
-            db.to_str().unwrap(),
-            "--format",
-            "json",
-            "list",
-            "--all",
-        ])
+        .args(["--db", db.to_str().unwrap(), "--format", "json", "list", "--all"])
         .assert()
         .success()
         .get_output()
@@ -381,13 +371,7 @@ fn export_json_and_csv() {
 
     // JSON to stdout
     let out = habit_cmd()
-        .args([
-            "--db",
-            db.to_str().unwrap(),
-            "--format",
-            "json",
-            "export",
-        ])
+        .args(["--db", db.to_str().unwrap(), "--format", "json", "export"])
         .assert()
         .success()
         .get_output()
@@ -415,8 +399,16 @@ fn export_json_and_csv() {
         .success();
 
     let habits_csv = fs::read_to_string(out_dir.join("habits.csv")).unwrap();
-    assert!(habits_csv.lines().next().unwrap().contains("id,name,schedule"));
+    assert!(habits_csv
+        .lines()
+        .next()
+        .unwrap()
+        .contains("id,name,schedule"));
 
     let checkins_csv = fs::read_to_string(out_dir.join("checkins.csv")).unwrap();
-    assert!(checkins_csv.lines().next().unwrap().contains("habit_id,date,quantity"));
+    assert!(checkins_csv
+        .lines()
+        .next()
+        .unwrap()
+        .contains("habit_id,date,quantity"));
 }
