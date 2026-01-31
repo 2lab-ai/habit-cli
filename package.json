@@ -1,0 +1,16 @@
+{
+  "name": "habit-cli",
+  "version": "0.0.0",
+  "description": "Habit/routine management CLI (MVP/WIP)",
+  "license": "MIT",
+  "private": true,
+  "type": "commonjs",
+  "engines": {
+    "node": ">=18"
+  },
+  "scripts": {
+    "test": "node --test test/**/*.test.mjs",
+    "lint": "node --test test/lint/*.test.mjs",
+    "build": "node ./scripts/build.mjs"
+  }
+}
