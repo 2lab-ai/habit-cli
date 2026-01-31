@@ -49,7 +49,10 @@ pub fn parse_schedule_pattern(pattern_raw: &str) -> Result<Schedule, CliError> {
             .filter(|p| !p.is_empty())
             .collect();
         if parts.is_empty() {
-            return Err(CliError::usage(format!("Invalid schedule pattern: {}", pattern_raw)));
+            return Err(CliError::usage(format!(
+                "Invalid schedule pattern: {}",
+                pattern_raw
+            )));
         }
         let mut out: Vec<u8> = Vec::new();
         for p in parts {
@@ -57,7 +60,9 @@ pub fn parse_schedule_pattern(pattern_raw: &str) -> Result<Schedule, CliError> {
                 .iter()
                 .find(|(name, _)| *name == p)
                 .map(|(_, d)| *d)
-                .ok_or_else(|| CliError::usage(format!("Invalid schedule pattern: {}", pattern_raw)))?;
+                .ok_or_else(|| {
+                    CliError::usage(format!("Invalid schedule pattern: {}", pattern_raw))
+                })?;
             if !out.contains(&iso) {
                 out.push(iso);
             }
@@ -119,9 +124,21 @@ mod tests {
 
     #[test]
     fn schedule_patterns_roundtrip() {
-        assert_eq!(schedule_to_string(&parse_schedule_pattern("everyday").unwrap()), "everyday");
-        assert_eq!(schedule_to_string(&parse_schedule_pattern("weekdays").unwrap()), "weekdays");
-        assert_eq!(schedule_to_string(&parse_schedule_pattern("weekends").unwrap()), "weekends");
-        assert_eq!(schedule_to_string(&parse_schedule_pattern("mon,wed,fri").unwrap()), "mon,wed,fri");
+        assert_eq!(
+            schedule_to_string(&parse_schedule_pattern("everyday").unwrap()),
+            "everyday"
+        );
+        assert_eq!(
+            schedule_to_string(&parse_schedule_pattern("weekdays").unwrap()),
+            "weekdays"
+        );
+        assert_eq!(
+            schedule_to_string(&parse_schedule_pattern("weekends").unwrap()),
+            "weekends"
+        );
+        assert_eq!(
+            schedule_to_string(&parse_schedule_pattern("mon,wed,fri").unwrap()),
+            "mon,wed,fri"
+        );
     }
 }

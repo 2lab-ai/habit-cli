@@ -93,11 +93,7 @@ fn compute_daily_stats(db: &Db, habit: &Habit, from: &str, to: &str) -> Result<S
     })
 }
 
-fn week_sum_for_habit(
-    db: &Db,
-    habit: &Habit,
-    week_start_date: &str,
-) -> Result<u32, CliError> {
+fn week_sum_for_habit(db: &Db, habit: &Habit, week_start_date: &str) -> Result<u32, CliError> {
     let end = iso_week_end(week_start_date)?;
     let days = date_range_inclusive(week_start_date, &end)?;
 
