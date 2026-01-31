@@ -18,7 +18,3 @@ pub fn counted_quantity(db: &Db, habit: &Habit, date: &str) -> u32 {
         raw
     }
 }
-
-pub fn is_done_for_date(db: &Db, habit: &Habit, date: &str) -> bool {
-    counted_quantity(db, habit, date) >= habit.target.quantity
-}

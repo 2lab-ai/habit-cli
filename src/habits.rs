@@ -107,6 +107,7 @@ pub fn select_habit_index(
     Ok(matches[0].0)
 }
 
+#[allow(clippy::too_many_arguments)]
 pub fn make_habit(
     id: String,
     name: &str,

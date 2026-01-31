@@ -890,16 +890,14 @@ fn run(cli: Cli) -> Result<(), CliError> {
                             date: date.to_string(),
                             debts: debts.clone(),
                         })?;
+                    } else if debts.is_empty() {
+                        print_line("(no outstanding penalty debts)");
                     } else {
-                        if debts.is_empty() {
-                            print_line("(no outstanding penalty debts)");
-                        } else {
-                            for d in debts.iter() {
-                                print_line(&format!(
-                                    "- {} {} due {} qty {}",
-                                    d.id, d.habit_id, d.due_date, d.quantity
-                                ));
-                            }
+                        for d in debts.iter() {
+                            print_line(&format!(
+                                "- {} {} due {} qty {}",
+                                d.id, d.habit_id, d.due_date, d.quantity
+                            ));
                         }
                     }
 
