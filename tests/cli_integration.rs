@@ -177,7 +177,12 @@ fn mvp_flow_is_deterministic_in_json_mode() {
         assert_eq!(out2.status.code(), Some(0), "stderr: {}", stderr_str(&out2));
         let j2: serde_json::Value = serde_json::from_str(stdout_str(&out2).trim()).unwrap();
         assert_eq!(
-            j2.get("habit").unwrap().get("id").unwrap().as_str().unwrap(),
+            j2.get("habit")
+                .unwrap()
+                .get("id")
+                .unwrap()
+                .as_str()
+                .unwrap(),
             stretch_id
         );
     }
@@ -216,14 +221,24 @@ fn mvp_flow_is_deterministic_in_json_mode() {
         args_a.extend_from_slice(&global);
         args_a.extend_from_slice(&["archive", "read", "--format", "json"]);
         let out_a = run_habit(&args_a, &shared_env);
-        assert_eq!(out_a.status.code(), Some(0), "stderr: {}", stderr_str(&out_a));
+        assert_eq!(
+            out_a.status.code(),
+            Some(0),
+            "stderr: {}",
+            stderr_str(&out_a)
+        );
 
         // status (default) should not include read
         let mut args_s: Vec<&str> = Vec::new();
         args_s.extend_from_slice(&global);
         args_s.extend_from_slice(&["status", "--date", today, "--format", "json"]);
         let out_s = run_habit(&args_s, &shared_env);
-        assert_eq!(out_s.status.code(), Some(0), "stderr: {}", stderr_str(&out_s));
+        assert_eq!(
+            out_s.status.code(),
+            Some(0),
+            "stderr: {}",
+            stderr_str(&out_s)
+        );
         let json_s: serde_json::Value = serde_json::from_str(stdout_str(&out_s).trim()).unwrap();
         assert!(!json_s.to_string().to_lowercase().contains("read"));
 
@@ -239,7 +254,12 @@ fn mvp_flow_is_deterministic_in_json_mode() {
             "json",
         ]);
         let out_si = run_habit(&args_si, &shared_env);
-        assert_eq!(out_si.status.code(), Some(0), "stderr: {}", stderr_str(&out_si));
+        assert_eq!(
+            out_si.status.code(),
+            Some(0),
+            "stderr: {}",
+            stderr_str(&out_si)
+        );
         let json_si: serde_json::Value = serde_json::from_str(stdout_str(&out_si).trim()).unwrap();
         assert!(json_si.to_string().to_lowercase().contains("read"));
 
@@ -248,11 +268,21 @@ fn mvp_flow_is_deterministic_in_json_mode() {
         args_u.extend_from_slice(&global);
         args_u.extend_from_slice(&["unarchive", "read", "--format", "json"]);
         let out_u = run_habit(&args_u, &shared_env);
-        assert_eq!(out_u.status.code(), Some(0), "stderr: {}", stderr_str(&out_u));
+        assert_eq!(
+            out_u.status.code(),
+            Some(0),
+            "stderr: {}",
+            stderr_str(&out_u)
+        );
 
         // status should include read again
         let out_s2 = run_habit(&args_s, &shared_env);
-        assert_eq!(out_s2.status.code(), Some(0), "stderr: {}", stderr_str(&out_s2));
+        assert_eq!(
+            out_s2.status.code(),
+            Some(0),
+            "stderr: {}",
+            stderr_str(&out_s2)
+        );
         let json_s2: serde_json::Value = serde_json::from_str(stdout_str(&out_s2).trim()).unwrap();
         assert!(json_s2.to_string().to_lowercase().contains("read"));
     }
