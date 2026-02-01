@@ -25,8 +25,10 @@ These options may appear before or after subcommands.
 - `--today <YYYY-MM-DD>`
   - Overrides “today” for deterministic output/testing.
   - Takes precedence over `HABITCLI_TODAY`.
-- `--format table|json`
+- `--format table|json|csv`
   - Default: `table`.
+  - Most commands support `table`/`json`.
+  - `csv` is primarily for `export` (other commands may ignore or reject it; keep scripts on `json` for stability).
   - `json` must be stable (sorted arrays, fixed keys).
 - `--no-color`
   - Disables ANSI color output.
@@ -358,7 +360,23 @@ Dates/weeks before a habit's `created_date` do not count toward eligible periods
 
 ---
 
-## 3.13 `habit export`
+## 3.13 `habit due`
+Show habits that are **due** (scheduled and not yet complete) for a given date.
+
+**Usage**
+```bash
+habit due [--date YYYY-MM-DD] [--include-archived] [--format table|json]
+```
+
+**Notes**
+- Intended for automation (e.g., OpenClaw nag/dispatch) to list what still needs attention.
+- The definition of “complete” must respect:
+  - targets (day/week)
+  - `needs_declaration=true` (a day is not complete unless a declaration exists for that date)
+
+---
+
+## 3.14 `habit export`
 Export habits + check-ins.
 
 **Usage**

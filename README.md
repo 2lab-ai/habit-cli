@@ -203,6 +203,16 @@ habit stats
 habit stats 스트레칭 --from 2026-01-01 --to 2026-01-31
 ```
 
+### `habit due`
+
+List habits that are scheduled and still incomplete for a given date (useful for OpenClaw reminders / nagging):
+
+```bash
+habit due
+habit due --date 2026-01-31
+habit due --format json
+```
+
 ### `habit export`
 
 ```bash
