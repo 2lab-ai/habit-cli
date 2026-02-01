@@ -1570,3 +1570,80 @@ fn due_command_respects_declaration_gating() {
         assert_eq!(due.len(), 0, "Gated habit should not be due after declaration + checkin");
     }
 }
+
+#[test]
+fn due_respects_declaration_gate() {
+    let tmp = tempfile::tempdir().unwrap();
+    let db_path = tmp.path().join("db.json");
+    let db = db_path.to_string_lossy().to_string();
+
+    let today = "2026-01-31";
+
+    let shared_env = [
+        ("HABITCLI_DB_PATH", db.as_str()),
+        ("HABITCLI_TODAY", today),
+        ("NO_COLOR", "1"),
+    ];
+    let global = ["--db", db.as_str(), "--today", today, "--no-color"];
+
+    // Add a habit (needs_declaration defaults to true)
+    {
+        let mut args: Vec<&str> = Vec::new();
+        args.extend_from_slice(&global);
+        args.extend_from_slice(&["add", "Stretch", "--schedule", "everyday", "--target", "1", "--format", "json"]);
+        let out = run_habit(&args, &shared_env);
+        assert_eq!(out.status.code(), Some(0), "stderr: {}", stderr_str(&out));
+    }
+
+    // Check in without declaration
+    {
+        let mut args: Vec<&str> = Vec::new();
+        args.extend_from_slice(&global);
+        args.extend_from_slice(&["checkin", "stretch", "--date", today, "--qty", "1"]);
+        let out = run_habit(&args, &shared_env);
+        assert_eq!(out.status.code(), Some(0), "stderr: {}", stderr_str(&out));
+    }
+
+    // It should still be due (because declaration is missing)
+    {
+        let mut args: Vec<&str> = Vec::new();
+        args.extend_from_slice(&global);
+        args.extend_from_slice(&["due", "--date", today, "--format", "json"]);
+        let out = run_habit(&args, &shared_env);
+        assert_eq!(out.status.code(), Some(0), "stderr: {}", stderr_str(&out));
+        let json: serde_json::Value = serde_json::from_str(stdout_str(&out).trim()).unwrap();
+        let hay = json.to_string().to_lowercase();
+        assert!(hay.contains("stretch"), "expected due list to contain Stretch, got: {}", hay);
+    }
+
+    // Declare, then it should no longer be due.
+    {
+        let mut args: Vec<&str> = Vec::new();
+        args.extend_from_slice(&global);
+        args.extend_from_slice(&[
+            "declare",
+            "stretch",
+            "--date",
+            today,
+            "--ts",
+            "2026-01-31T09:00:00Z",
+            "--text",
+            "오늘 스트레칭 1회 한다",
+            "--format",
+            "json",
+        ]);
+        let out = run_habit(&args, &shared_env);
+        assert_eq!(out.status.code(), Some(0), "stderr: {}", stderr_str(&out));
+    }
+
+    {
+        let mut args: Vec<&str> = Vec::new();
+        args.extend_from_slice(&global);
+        args.extend_from_slice(&["due", "--date", today, "--format", "json"]);
+        let out = run_habit(&args, &shared_env);
+        assert_eq!(out.status.code(), Some(0), "stderr: {}", stderr_str(&out));
+        let hay = stdout_str(&out).to_lowercase();
+        assert!(!hay.contains("stretch"), "expected Stretch to be cleared from due list, got: {}", hay);
+    }
+}
+
