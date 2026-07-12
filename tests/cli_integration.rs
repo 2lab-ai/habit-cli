@@ -22,6 +22,388 @@ fn stderr_str(out: &std::process::Output) -> String {
 }
 
 #[test]
+fn routine_session_flow_is_deterministic_and_idempotent() {
+    let tmp = tempfile::tempdir().unwrap();
+    let db_path = tmp.path().join("db.json");
+    let db = db_path.to_string_lossy().to_string();
+
+    let today = "2026-01-31";
+
+    let shared_env = [
+        ("HABITCLI_DB_PATH", db.as_str()),
+        ("HABITCLI_TODAY", today),
+        ("NO_COLOR", "1"),
+    ];
+
+    let global = ["--db", db.as_str(), "--today", today, "--no-color"];
+
+    // 1) create routine
+    let routine_id = {
+        let mut args: Vec<&str> = Vec::new();
+        args.extend_from_slice(&global);
+        args.extend_from_slice(&[
+            "routine",
+            "add",
+            "Morning",
+            "--at",
+            "09:00",
+            "--format",
+            "json",
+        ]);
+
+        let out = run_habit(&args, &shared_env);
+        assert_eq!(out.status.code(), Some(0), "stderr: {}", stderr_str(&out));
+
+        let json: serde_json::Value = serde_json::from_str(stdout_str(&out).trim()).unwrap();
+        json.get("routine")
+            .and_then(|r| r.get("id"))
+            .and_then(|v| v.as_str())
+            .unwrap()
+            .to_string()
+    };
+
+    // 2) step-add x2
+    for (name, minutes) in [("Water", "5"), ("Stretch", "10")] {
+        let mut args: Vec<&str> = Vec::new();
+        args.extend_from_slice(&global);
+        args.extend_from_slice(&[
+            "routine",
+            "step-add",
+            routine_id.as_str(),
+            "--name",
+            name,
+            "--minutes",
+            minutes,
+            "--format",
+            "json",
+        ]);
+
+        let out = run_habit(&args, &shared_env);
+        assert_eq!(out.status.code(), Some(0), "stderr: {}", stderr_str(&out));
+    }
+
+    // 3) start session
+    let session_id = {
+        let mut args: Vec<&str> = Vec::new();
+        args.extend_from_slice(&global);
+        args.extend_from_slice(&[
+            "routine",
+            "start",
+            routine_id.as_str(),
+            "--date",
+            today,
+            "--ts",
+            "2026-01-31T09:00:00Z",
+            "--format",
+            "json",
+        ]);
+
+        let out = run_habit(&args, &shared_env);
+        assert_eq!(out.status.code(), Some(0), "stderr: {}", stderr_str(&out));
+
+        let json: serde_json::Value = serde_json::from_str(stdout_str(&out).trim()).unwrap();
+        json.get("session")
+            .and_then(|s| s.get("id"))
+            .and_then(|v| v.as_str())
+            .unwrap()
+            .to_string()
+    };
+
+    // 4) next (then retry same ts => idempotent)
+    for _ in 0..2 {
+        let mut args: Vec<&str> = Vec::new();
+        args.extend_from_slice(&global);
+        args.extend_from_slice(&[
+            "routine",
+            "next",
+            session_id.as_str(),
+            "--ts",
+            "2026-01-31T09:05:00Z",
+            "--format",
+            "json",
+        ]);
+
+        let out = run_habit(&args, &shared_env);
+        assert_eq!(out.status.code(), Some(0), "stderr: {}", stderr_str(&out));
+    }
+
+    // 5) skip (second step)
+    {
+        let mut args: Vec<&str> = Vec::new();
+        args.extend_from_slice(&global);
+        args.extend_from_slice(&[
+            "routine",
+            "skip",
+            session_id.as_str(),
+            "--ts",
+            "2026-01-31T09:06:00Z",
+            "--reason",
+            "tired",
+            "--format",
+            "json",
+        ]);
+
+        let out = run_habit(&args, &shared_env);
+        assert_eq!(out.status.code(), Some(0), "stderr: {}", stderr_str(&out));
+    }
+
+    // 6) done
+    {
+        let mut args: Vec<&str> = Vec::new();
+        args.extend_from_slice(&global);
+        args.extend_from_slice(&[
+            "routine",
+            "done",
+            session_id.as_str(),
+            "--ts",
+            "2026-01-31T09:07:00Z",
+            "--format",
+            "json",
+        ]);
+
+        let out = run_habit(&args, &shared_env);
+        assert_eq!(out.status.code(), Some(0), "stderr: {}", stderr_str(&out));
+    }
+
+    // 7) status schema + counts
+    {
+        let mut args: Vec<&str> = Vec::new();
+        args.extend_from_slice(&global);
+        args.extend_from_slice(&[
+            "routine",
+            "status",
+            session_id.as_str(),
+            "--format",
+            "json",
+        ]);
+
+        let out = run_habit(&args, &shared_env);
+        assert_eq!(out.status.code(), Some(0), "stderr: {}", stderr_str(&out));
+
+        let json: serde_json::Value = serde_json::from_str(stdout_str(&out).trim()).unwrap();
+
+        let counts = json.get("counts").unwrap();
+        assert_eq!(counts.get("total").unwrap().as_u64().unwrap(), 2);
+        assert_eq!(counts.get("done").unwrap().as_u64().unwrap(), 1);
+        assert_eq!(counts.get("skipped").unwrap().as_u64().unwrap(), 1);
+        assert_eq!(counts.get("pending").unwrap().as_u64().unwrap(), 0);
+
+        assert!(json.get("current_step").unwrap().is_null());
+
+        let actions = json
+            .get("session")
+            .and_then(|s| s.get("actions"))
+            .and_then(|v| v.as_array())
+            .unwrap();
+        // next(1) + skip(1) + done(1) = 3 (next retry is idempotent)
+        assert_eq!(actions.len(), 3);
+    }
+}
+
+#[test]
+fn nag_plan_respects_quiet_hours_snooze_and_cadence() {
+    let tmp = tempfile::tempdir().unwrap();
+    let db_path = tmp.path().join("db.json");
+    let db = db_path.to_string_lossy().to_string();
+
+    let today = "2026-01-31";
+
+    let shared_env = [
+        ("HABITCLI_DB_PATH", db.as_str()),
+        ("HABITCLI_TODAY", today),
+        ("NO_COLOR", "1"),
+    ];
+
+    let global = ["--db", db.as_str(), "--today", today, "--no-color"];
+
+    // Create one habit that is due today (no checkin/declaration).
+    {
+        let mut args: Vec<&str> = Vec::new();
+        args.extend_from_slice(&global);
+        args.extend_from_slice(&[
+            "add",
+            "DueHabit",
+            "--schedule",
+            "everyday",
+            "--period",
+            "day",
+            "--target",
+            "1",
+            "--format",
+            "json",
+        ]);
+
+        let out = run_habit(&args, &shared_env);
+        assert_eq!(out.status.code(), Some(0), "stderr: {}", stderr_str(&out));
+    }
+
+    // Quiet hours (default 23:00–08:00): at 07:00 should not send, next is 08:00.
+    {
+        let mut args: Vec<&str> = Vec::new();
+        args.extend_from_slice(&global);
+        args.extend_from_slice(&[
+            "nag",
+            "plan",
+            "--date",
+            today,
+            "--now-ts",
+            "2026-01-31T07:00:00+09:00",
+            "--format",
+            "json",
+        ]);
+
+        let out = run_habit(&args, &shared_env);
+        assert_eq!(out.status.code(), Some(0), "stderr: {}", stderr_str(&out));
+
+        let json: serde_json::Value = serde_json::from_str(stdout_str(&out).trim()).unwrap();
+        assert_eq!(json.get("should_send").unwrap().as_bool().unwrap(), false);
+        assert_eq!(
+            json.get("next_check_at").unwrap().as_str().unwrap(),
+            "2026-01-31T08:00:00+09:00"
+        );
+    }
+
+    // At 09:00 (not quiet): should send now with severity=1.
+    {
+        let mut args: Vec<&str> = Vec::new();
+        args.extend_from_slice(&global);
+        args.extend_from_slice(&[
+            "nag",
+            "plan",
+            "--date",
+            today,
+            "--now-ts",
+            "2026-01-31T09:00:00+09:00",
+            "--format",
+            "json",
+        ]);
+
+        let out = run_habit(&args, &shared_env);
+        assert_eq!(out.status.code(), Some(0), "stderr: {}", stderr_str(&out));
+
+        let json: serde_json::Value = serde_json::from_str(stdout_str(&out).trim()).unwrap();
+        assert_eq!(json.get("severity").unwrap().as_u64().unwrap(), 1);
+        assert_eq!(json.get("should_send").unwrap().as_bool().unwrap(), true);
+        assert_eq!(
+            json.get("next_check_at").unwrap().as_str().unwrap(),
+            "2026-01-31T09:00:00+09:00"
+        );
+    }
+
+    // Record sent at 09:00.
+    {
+        let mut args: Vec<&str> = Vec::new();
+        args.extend_from_slice(&global);
+        args.extend_from_slice(&[
+            "nag",
+            "sent",
+            "--ts",
+            "2026-01-31T09:00:00+09:00",
+            "--format",
+            "json",
+        ]);
+        let out = run_habit(&args, &shared_env);
+        assert_eq!(out.status.code(), Some(0), "stderr: {}", stderr_str(&out));
+    }
+
+    // Within cadence (default 180m): at 09:30 should not send, next is 12:00.
+    {
+        let mut args: Vec<&str> = Vec::new();
+        args.extend_from_slice(&global);
+        args.extend_from_slice(&[
+            "nag",
+            "plan",
+            "--date",
+            today,
+            "--now-ts",
+            "2026-01-31T09:30:00+09:00",
+            "--format",
+            "json",
+        ]);
+
+        let out = run_habit(&args, &shared_env);
+        assert_eq!(out.status.code(), Some(0), "stderr: {}", stderr_str(&out));
+
+        let json: serde_json::Value = serde_json::from_str(stdout_str(&out).trim()).unwrap();
+        assert_eq!(json.get("should_send").unwrap().as_bool().unwrap(), false);
+        assert_eq!(
+            json.get("next_check_at").unwrap().as_str().unwrap(),
+            "2026-01-31T12:00:00+09:00"
+        );
+    }
+
+    // Snooze until 13:00.
+    {
+        let mut args: Vec<&str> = Vec::new();
+        args.extend_from_slice(&global);
+        args.extend_from_slice(&[
+            "nag",
+            "snooze",
+            "--until",
+            "2026-01-31T13:00:00+09:00",
+            "--reason",
+            "meeting",
+            "--format",
+            "json",
+        ]);
+        let out = run_habit(&args, &shared_env);
+        assert_eq!(out.status.code(), Some(0), "stderr: {}", stderr_str(&out));
+    }
+
+    // During snooze: at 12:30 next_check_at is 13:00.
+    {
+        let mut args: Vec<&str> = Vec::new();
+        args.extend_from_slice(&global);
+        args.extend_from_slice(&[
+            "nag",
+            "plan",
+            "--date",
+            today,
+            "--now-ts",
+            "2026-01-31T12:30:00+09:00",
+            "--format",
+            "json",
+        ]);
+
+        let out = run_habit(&args, &shared_env);
+        assert_eq!(out.status.code(), Some(0), "stderr: {}", stderr_str(&out));
+
+        let json: serde_json::Value = serde_json::from_str(stdout_str(&out).trim()).unwrap();
+        assert_eq!(json.get("should_send").unwrap().as_bool().unwrap(), false);
+        assert_eq!(
+            json.get("next_check_at").unwrap().as_str().unwrap(),
+            "2026-01-31T13:00:00+09:00"
+        );
+    }
+
+    // After snooze: at 13:30 should send now.
+    {
+        let mut args: Vec<&str> = Vec::new();
+        args.extend_from_slice(&global);
+        args.extend_from_slice(&[
+            "nag",
+            "plan",
+            "--date",
+            today,
+            "--now-ts",
+            "2026-01-31T13:30:00+09:00",
+            "--format",
+            "json",
+        ]);
+
+        let out = run_habit(&args, &shared_env);
+        assert_eq!(out.status.code(), Some(0), "stderr: {}", stderr_str(&out));
+
+        let json: serde_json::Value = serde_json::from_str(stdout_str(&out).trim()).unwrap();
+        assert_eq!(json.get("should_send").unwrap().as_bool().unwrap(), true);
+        assert_eq!(
+            json.get("next_check_at").unwrap().as_str().unwrap(),
+            "2026-01-31T13:30:00+09:00"
+        );
+    }
+}
+
+#[test]
 fn mvp_flow_is_deterministic_in_json_mode() {
     let tmp = tempfile::tempdir().unwrap();
     let db_path = tmp.path().join("db.json");
@@ -1646,4 +2028,3 @@ fn due_respects_declaration_gate() {
         assert!(!hay.contains("stretch"), "expected Stretch to be cleared from due list, got: {}", hay);
     }
 }
-

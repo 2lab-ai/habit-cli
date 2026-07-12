@@ -8,6 +8,18 @@ fn default_excuse_quota_per_week() -> u32 {
     2
 }
 
+fn default_cadence_minutes() -> u32 {
+    180
+}
+
+fn default_quiet_start() -> String {
+    "23:00".to_string()
+}
+
+fn default_quiet_end() -> String {
+    "08:00".to_string()
+}
+
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub struct Db {
     pub version: u32,
@@ -34,6 +46,18 @@ pub struct Db {
     /// Penalty actions (append-only): resolve/void.
     #[serde(default)]
     pub penalty_actions: Vec<PenaltyAction>,
+
+    /// Routine templates.
+    #[serde(default)]
+    pub routines: Vec<Routine>,
+
+    /// Routine session instances.
+    #[serde(default)]
+    pub routine_sessions: Vec<RoutineSession>,
+
+    /// Nag configuration + state (automation-facing; messaging is handled by OpenClaw).
+    #[serde(default)]
+    pub nag: Nag,
 }
 
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
@@ -48,6 +72,9 @@ pub struct Meta {
 
     #[serde(default = "default_next_counter")]
     pub next_penalty_rule_number: u32,
+
+    #[serde(default = "default_next_counter")]
+    pub next_routine_number: u32,
 }
 
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
@@ -155,6 +182,149 @@ pub enum PenaltyActionKind {
     Void,
 }
 
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+pub struct Routine {
+    pub id: String,
+    pub name: String,
+    /// Optional display/scheduling hint for external orchestrators.
+    #[serde(default)]
+    pub at: Option<String>,
+    #[serde(default)]
+    pub steps: Vec<RoutineStep>,
+    pub archived: bool,
+    pub created_date: String,
+    pub archived_date: Option<String>,
+}
+
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+pub struct RoutineStep {
+    pub index: u32,
+    pub name: String,
+    pub minutes: u32,
+    #[serde(default)]
+    pub quote: Option<String>,
+}
+
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+pub struct RoutineSession {
+    pub id: String,
+    pub routine_id: String,
+    pub routine_name: String,
+    pub date: String,
+    pub started_ts: String,
+    pub state: RoutineSessionState,
+    #[serde(default)]
+    pub steps: Vec<RoutineSessionStep>,
+    /// Append-only session events for audit + retry-safety.
+    #[serde(default)]
+    pub actions: Vec<RoutineAction>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum RoutineSessionState {
+    Active,
+    Done,
+}
+
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+pub struct RoutineSessionStep {
+    pub index: u32,
+    pub name: String,
+    pub minutes: u32,
+    #[serde(default)]
+    pub quote: Option<String>,
+    pub status: RoutineStepStatus,
+    #[serde(default)]
+    pub action_ts: Option<String>,
+    #[serde(default)]
+    pub skip_reason: Option<String>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum RoutineStepStatus {
+    Pending,
+    Done,
+    Skipped,
+}
+
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+pub struct RoutineAction {
+    pub id: String,
+    pub kind: RoutineActionKind,
+    pub ts: String,
+    #[serde(default)]
+    pub step_index: Option<u32>,
+    #[serde(default)]
+    pub reason: Option<String>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum RoutineActionKind {
+    Next,
+    Skip,
+    Done,
+}
+
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+pub struct Nag {
+    #[serde(default)]
+    pub config: NagConfig,
+    #[serde(default)]
+    pub state: NagState,
+}
+
+impl Default for Nag {
+    fn default() -> Self {
+        Self {
+            config: NagConfig::default(),
+            state: NagState::default(),
+        }
+    }
+}
+
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+pub struct NagConfig {
+    #[serde(default = "default_quiet_start")]
+    pub quiet_start: String,
+    #[serde(default = "default_quiet_end")]
+    pub quiet_end: String,
+    #[serde(default = "default_cadence_minutes")]
+    pub cadence_minutes: u32,
+}
+
+impl Default for NagConfig {
+    fn default() -> Self {
+        Self {
+            quiet_start: default_quiet_start(),
+            quiet_end: default_quiet_end(),
+            cadence_minutes: default_cadence_minutes(),
+        }
+    }
+}
+
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+pub struct NagState {
+    #[serde(default)]
+    pub snoozed_until: Option<String>,
+    #[serde(default)]
+    pub snooze_reason: Option<String>,
+    #[serde(default)]
+    pub last_sent_ts: Option<String>,
+}
+
+impl Default for NagState {
+    fn default() -> Self {
+        Self {
+            snoozed_until: None,
+            snooze_reason: None,
+            last_sent_ts: None,
+        }
+    }
+}
+
 pub fn default_db() -> Db {
     Db {
         version: 1,
@@ -163,6 +333,7 @@ pub fn default_db() -> Db {
             next_declaration_number: 1,
             next_excuse_number: 1,
             next_penalty_rule_number: 1,
+            next_routine_number: 1,
         },
         habits: Vec::new(),
         checkins: Vec::new(),
@@ -171,5 +342,8 @@ pub fn default_db() -> Db {
         penalty_rules: Vec::new(),
         penalty_debts: Vec::new(),
         penalty_actions: Vec::new(),
+        routines: Vec::new(),
+        routine_sessions: Vec::new(),
+        nag: Nag::default(),
     }
 }

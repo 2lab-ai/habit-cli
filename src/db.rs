@@ -55,6 +55,7 @@ fn validate_db_shape(db: &Db) -> Result<(), CliError> {
         || db.meta.next_declaration_number < 1
         || db.meta.next_excuse_number < 1
         || db.meta.next_penalty_rule_number < 1
+        || db.meta.next_routine_number < 1
     {
         return Err(CliError::io("DB corrupted"));
     }

@@ -99,6 +99,9 @@ habit status
 - `declare` requires `--date` and `--ts` (RFC3339)
 - `excuse` requires `--date` and `--ts` (RFC3339)
 - `penalty tick/arm/resolve/void` require `--date` and `--ts` (RFC3339)
+- `routine start` requires `--date` and `--ts` (RFC3339)
+- `routine next/skip/done` require `--ts` (RFC3339)
+- `nag sent` requires `--ts` (RFC3339)
 
 Example timestamp: `2026-01-31T10:00:00Z`
 
@@ -255,3 +258,26 @@ Disable ANSI colors:
 - `docs/MVP_SPEC.md`
 - `docs/CLI_REFERENCE.md` (canonical contract)
 - `docs/EXAMPLES.md`
+- `docs/SMOKE.md` (smoke test checklist)
+
+---
+
+## Available Commands (v0.1.0)
+
+| Command | Description |
+|---------|-------------|
+| `add` | Create a new habit |
+| `list` | List habits |
+| `show` | Show habit details |
+| `archive` | Soft-delete a habit |
+| `unarchive` | Restore archived habit |
+| `checkin` | Record progress |
+| `declare` | Record commitment |
+| `excuse` | Record exception |
+| `penalty` | Penalty subsystem (arm/tick/status/resolve/void) |
+| `status` | Dashboard view |
+| `stats` | Streaks + success rates |
+| `recap` | HelloHabit-style completion % |
+| `export` | Export data (json/csv) |
+
+> **Note:** `edit` and `due` commands exist in source but require rebuild.

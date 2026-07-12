@@ -9,9 +9,11 @@ mod excuses;
 mod export;
 mod habits;
 mod model;
+mod nag;
 mod output;
 mod penalty;
 mod recap;
+mod routines;
 mod schedule;
 mod stable_json;
 mod stats;
@@ -27,6 +29,10 @@ use crate::error::CliError;
 use crate::export::export_csv_to_dir;
 use crate::habits::{
     list_habits, make_habit, next_habit_id, select_habit_index, stable_habit_sort,
+};
+use crate::routines::{
+    add_step as add_routine_step, list_routines, make_routine, next_routine_id,
+    select_routine_index, select_session_index, start_session as start_routine_session,
 };
 use crate::output::{render_simple_table, Styler};
 use crate::schedule::schedule_to_string;
@@ -96,6 +102,8 @@ enum Command {
     Declare(DeclareArgs),
     Excuse(ExcuseArgs),
     Penalty(PenaltyArgs),
+    Routine(RoutineArgs),
+    Nag(NagArgs),
     Status(StatusArgs),
     Stats(StatsArgs),
     /// HelloHabit-style recap: completion percentages per habit over a time range.
@@ -324,6 +332,175 @@ struct PenaltyVoidArgs {
 
     #[arg(long)]
     reason: String,
+}
+
+#[derive(Args, Debug)]
+struct RoutineArgs {
+    #[command(subcommand)]
+    command: RoutineCommand,
+}
+
+#[derive(Subcommand, Debug)]
+enum RoutineCommand {
+    Add(RoutineAddArgs),
+    List(RoutineListArgs),
+    Show(RoutineSelectorArgs),
+    Archive(RoutineSelectorArgs),
+    Unarchive(RoutineSelectorArgs),
+    StepAdd(RoutineStepAddArgs),
+    Start(RoutineStartArgs),
+    Next(RoutineActionArgs),
+    Skip(RoutineSkipArgs),
+    Done(RoutineActionArgs),
+    Status(RoutineSessionArgs),
+}
+
+#[derive(Args, Debug)]
+struct RoutineAddArgs {
+    name: String,
+
+    /// Optional scheduling hint (HH:MM). Used by external orchestrators; habit-cli does not schedule.
+    #[arg(long)]
+    at: Option<String>,
+}
+
+#[derive(Args, Debug)]
+struct RoutineListArgs {
+    /// Include archived routines
+    #[arg(long)]
+    all: bool,
+}
+
+#[derive(Args, Debug)]
+struct RoutineSelectorArgs {
+    /// Routine selector: exact id (r0001) or unique name prefix (case-insensitive)
+    routine: String,
+}
+
+#[derive(Args, Debug)]
+struct RoutineStepAddArgs {
+    /// Routine selector: exact id (r0001) or unique name prefix (case-insensitive)
+    routine: String,
+
+    #[arg(long)]
+    name: String,
+
+    /// Integer >= 1
+    #[arg(long)]
+    minutes: u32,
+
+    #[arg(long)]
+    quote: Option<String>,
+}
+
+#[derive(Args, Debug)]
+struct RoutineStartArgs {
+    /// Routine selector: exact id (r0001) or unique name prefix (case-insensitive)
+    routine: String,
+
+    #[arg(long)]
+    date: String,
+
+    /// RFC3339 with offset (no implicit system clock)
+    #[arg(long)]
+    ts: String,
+}
+
+#[derive(Args, Debug)]
+struct RoutineActionArgs {
+    /// Routine session id (rs:<routine_id>:<YYYY-MM-DD>:<n>)
+    session: String,
+
+    /// RFC3339 with offset (no implicit system clock)
+    #[arg(long)]
+    ts: String,
+}
+
+#[derive(Args, Debug)]
+struct RoutineSkipArgs {
+    /// Routine session id (rs:<routine_id>:<YYYY-MM-DD>:<n>)
+    session: String,
+
+    /// RFC3339 with offset (no implicit system clock)
+    #[arg(long)]
+    ts: String,
+
+    #[arg(long)]
+    reason: Option<String>,
+}
+
+#[derive(Args, Debug)]
+struct RoutineSessionArgs {
+    /// Routine session id (rs:<routine_id>:<YYYY-MM-DD>:<n>)
+    session: String,
+}
+
+#[derive(Args, Debug)]
+struct NagArgs {
+    #[command(subcommand)]
+    command: NagCommand,
+}
+
+#[derive(Subcommand, Debug)]
+enum NagCommand {
+    Show,
+    Plan(NagPlanArgs),
+    Config(NagConfigArgs),
+    Snooze(NagSnoozeArgs),
+    Unsnooze,
+    Sent(NagSentArgs),
+}
+
+#[derive(Args, Debug)]
+struct NagPlanArgs {
+    #[arg(long)]
+    date: String,
+
+    /// RFC3339 with offset (no implicit system clock)
+    #[arg(long = "now-ts")]
+    now_ts: String,
+
+    #[arg(long)]
+    include_archived: bool,
+}
+
+#[derive(Args, Debug)]
+struct NagConfigArgs {
+    #[command(subcommand)]
+    command: NagConfigCommand,
+}
+
+#[derive(Subcommand, Debug)]
+enum NagConfigCommand {
+    Set(NagConfigSetArgs),
+}
+
+#[derive(Args, Debug)]
+struct NagConfigSetArgs {
+    #[arg(long = "quiet-start")]
+    quiet_start: String,
+
+    #[arg(long = "quiet-end")]
+    quiet_end: String,
+
+    #[arg(long)]
+    cadence_minutes: Option<u32>,
+}
+
+#[derive(Args, Debug)]
+struct NagSnoozeArgs {
+    #[arg(long)]
+    until: String,
+
+    #[arg(long)]
+    reason: Option<String>,
+}
+
+#[derive(Args, Debug)]
+struct NagSentArgs {
+    /// RFC3339 with offset (no implicit system clock)
+    #[arg(long)]
+    ts: String,
 }
 
 #[derive(Args, Debug)]
@@ -1092,6 +1269,447 @@ fn run(cli: Cli) -> Result<(), CliError> {
                         print_json(&Out { action })?;
                     } else {
                         print_line(&format!("Voided: {}", v.debt_id));
+                    }
+                    Ok(())
+                }
+            }
+        }
+
+        Command::Routine(args) => {
+            ensure_format_supported(cli.format, false)?;
+
+            match args.command {
+                RoutineCommand::Add(a) => {
+                    let created = update_db(&db_path, |db| {
+                        let id = next_routine_id(db);
+                        let routine = make_routine(id, &a.name, a.at.as_deref(), &today)?;
+                        db.routines.push(routine.clone());
+                        Ok(routine)
+                    })?;
+
+                    if cli.format == Format::Json {
+                        #[derive(serde::Serialize)]
+                        struct Out {
+                            routine: crate::model::Routine,
+                        }
+                        print_json(&Out { routine: created })?;
+                    } else {
+                        print_line(&format!("Created routine: {} ({})", created.name, created.id));
+                    }
+                    Ok(())
+                }
+
+                RoutineCommand::List(a) => {
+                    let db = read_db(&db_path)?;
+                    let routines = list_routines(&db, a.all);
+
+                    if cli.format == Format::Json {
+                        #[derive(serde::Serialize)]
+                        struct Out {
+                            routines: Vec<crate::model::Routine>,
+                        }
+                        print_json(&Out { routines })?;
+                    } else {
+                        let rows: Vec<Vec<String>> = routines
+                            .iter()
+                            .map(|r| {
+                                vec![
+                                    r.id.clone(),
+                                    r.name.clone(),
+                                    r.at.clone().unwrap_or_default(),
+                                    r.steps.len().to_string(),
+                                    (if r.archived { "yes" } else { "no" }).to_string(),
+                                ]
+                            })
+                            .collect();
+                        print_line(&render_simple_table(
+                            &["id", "name", "at", "steps", "archived"],
+                            &rows,
+                        ));
+                    }
+                    Ok(())
+                }
+
+                RoutineCommand::Show(a) => {
+                    let db = read_db(&db_path)?;
+                    let idx = select_routine_index(&db, &a.routine, true)?;
+                    let routine = db.routines[idx].clone();
+
+                    if cli.format == Format::Json {
+                        #[derive(serde::Serialize)]
+                        struct Out {
+                            routine: crate::model::Routine,
+                        }
+                        print_json(&Out { routine })?;
+                    } else {
+                        print_line(&format!("{} ({})", routine.name, routine.id));
+                        if let Some(ref at) = routine.at {
+                            print_line(&format!("at: {}", at));
+                        }
+                        if routine.archived {
+                            print_line(&styler.gray("(archived)"));
+                        }
+                        if routine.steps.is_empty() {
+                            print_line(&styler.gray("(no steps)"));
+                        } else {
+                            for s in routine.steps.iter() {
+                                let q = s.quote.clone().unwrap_or_default();
+                                if q.is_empty() {
+                                    print_line(&format!("- {}. {} ({}m)", s.index, s.name, s.minutes));
+                                } else {
+                                    print_line(&format!(
+                                        "- {}. {} ({}m) — {}",
+                                        s.index, s.name, s.minutes, q
+                                    ));
+                                }
+                            }
+                        }
+                    }
+                    Ok(())
+                }
+
+                RoutineCommand::Archive(a) => {
+                    let updated = update_db(&db_path, |db| {
+                        let idx = select_routine_index(db, &a.routine, true)?;
+                        let r = &mut db.routines[idx];
+                        if !r.archived {
+                            r.archived = true;
+                            r.archived_date = Some(today.clone());
+                        }
+                        Ok(r.clone())
+                    })?;
+
+                    if cli.format == Format::Json {
+                        #[derive(serde::Serialize)]
+                        struct Out {
+                            routine: crate::model::Routine,
+                        }
+                        print_json(&Out { routine: updated })?;
+                    } else {
+                        print_line(&format!("Archived: {} ({})", updated.name, updated.id));
+                    }
+                    Ok(())
+                }
+
+                RoutineCommand::Unarchive(a) => {
+                    let updated = update_db(&db_path, |db| {
+                        let idx = select_routine_index(db, &a.routine, true)?;
+                        let r = &mut db.routines[idx];
+                        if r.archived {
+                            r.archived = false;
+                            r.archived_date = None;
+                        }
+                        Ok(r.clone())
+                    })?;
+
+                    if cli.format == Format::Json {
+                        #[derive(serde::Serialize)]
+                        struct Out {
+                            routine: crate::model::Routine,
+                        }
+                        print_json(&Out { routine: updated })?;
+                    } else {
+                        print_line(&format!("Unarchived: {} ({})", updated.name, updated.id));
+                    }
+                    Ok(())
+                }
+
+                RoutineCommand::StepAdd(a) => {
+                    let updated = update_db(&db_path, |db| {
+                        let idx = select_routine_index(db, &a.routine, true)?;
+                        let r = &mut db.routines[idx];
+                        if r.archived {
+                            return Err(CliError::usage("Cannot modify archived routine"));
+                        }
+                        let _ = add_routine_step(r, &a.name, a.minutes, a.quote.as_deref())?;
+                        Ok(r.clone())
+                    })?;
+
+                    if cli.format == Format::Json {
+                        #[derive(serde::Serialize)]
+                        struct Out {
+                            routine: crate::model::Routine,
+                        }
+                        print_json(&Out { routine: updated })?;
+                    } else {
+                        print_line(&format!("Added step to: {} ({})", updated.name, updated.id));
+                    }
+                    Ok(())
+                }
+
+                RoutineCommand::Start(a) => {
+                    let session = update_db(&db_path, |db| {
+                        let idx = select_routine_index(db, &a.routine, false)?;
+                        let routine = db.routines[idx].clone();
+                        start_routine_session(db, &routine, &a.date, &a.ts)
+                    })?;
+
+                    if cli.format == Format::Json {
+                        #[derive(serde::Serialize)]
+                        struct Out {
+                            session: crate::model::RoutineSession,
+                        }
+                        print_json(&Out { session })?;
+                    } else {
+                        print_line(&format!("Started: {}", session.id));
+                    }
+                    Ok(())
+                }
+
+                RoutineCommand::Next(a) => {
+                    let session = update_db(&db_path, |db| {
+                        let idx = select_session_index(db, &a.session)?;
+                        let s = &mut db.routine_sessions[idx];
+                        let _ = crate::routines::apply_action(
+                            s,
+                            crate::model::RoutineActionKind::Next,
+                            &a.ts,
+                            None,
+                        )?;
+                        Ok(s.clone())
+                    })?;
+
+                    if cli.format == Format::Json {
+                        #[derive(serde::Serialize)]
+                        struct Out {
+                            session: crate::model::RoutineSession,
+                        }
+                        print_json(&Out { session })?;
+                    } else {
+                        print_line(&format!("OK: {}", session.id));
+                    }
+                    Ok(())
+                }
+
+                RoutineCommand::Skip(a) => {
+                    let session = update_db(&db_path, |db| {
+                        let idx = select_session_index(db, &a.session)?;
+                        let s = &mut db.routine_sessions[idx];
+                        let _ = crate::routines::apply_action(
+                            s,
+                            crate::model::RoutineActionKind::Skip,
+                            &a.ts,
+                            a.reason.as_deref(),
+                        )?;
+                        Ok(s.clone())
+                    })?;
+
+                    if cli.format == Format::Json {
+                        #[derive(serde::Serialize)]
+                        struct Out {
+                            session: crate::model::RoutineSession,
+                        }
+                        print_json(&Out { session })?;
+                    } else {
+                        print_line(&format!("OK: {}", session.id));
+                    }
+                    Ok(())
+                }
+
+                RoutineCommand::Done(a) => {
+                    let session = update_db(&db_path, |db| {
+                        let idx = select_session_index(db, &a.session)?;
+                        let s = &mut db.routine_sessions[idx];
+                        let _ = crate::routines::apply_action(
+                            s,
+                            crate::model::RoutineActionKind::Done,
+                            &a.ts,
+                            None,
+                        )?;
+                        Ok(s.clone())
+                    })?;
+
+                    if cli.format == Format::Json {
+                        #[derive(serde::Serialize)]
+                        struct Out {
+                            session: crate::model::RoutineSession,
+                        }
+                        print_json(&Out { session })?;
+                    } else {
+                        print_line(&format!("Done: {}", session.id));
+                    }
+                    Ok(())
+                }
+
+                RoutineCommand::Status(a) => {
+                    let db = read_db(&db_path)?;
+                    let idx = select_session_index(&db, &a.session)?;
+                    let session = db.routine_sessions[idx].clone();
+
+                    let mut done = 0u32;
+                    let mut skipped = 0u32;
+                    let mut pending = 0u32;
+                    for s in session.steps.iter() {
+                        match s.status {
+                            crate::model::RoutineStepStatus::Done => done += 1,
+                            crate::model::RoutineStepStatus::Skipped => skipped += 1,
+                            crate::model::RoutineStepStatus::Pending => pending += 1,
+                        }
+                    }
+
+                    #[derive(serde::Serialize)]
+                    struct Counts {
+                        total: u32,
+                        done: u32,
+                        skipped: u32,
+                        pending: u32,
+                    }
+
+                    #[derive(serde::Serialize)]
+                    struct CurrentStep {
+                        index: u32,
+                        name: String,
+                        minutes: u32,
+                        quote: Option<String>,
+                    }
+
+                    let cur = crate::routines::current_step(&session).map(|s| CurrentStep {
+                        index: s.index,
+                        name: s.name.clone(),
+                        minutes: s.minutes,
+                        quote: s.quote.clone(),
+                    });
+
+                    if cli.format == Format::Json {
+                        #[derive(serde::Serialize)]
+                        struct Out {
+                            session: crate::model::RoutineSession,
+                            current_step: Option<CurrentStep>,
+                            counts: Counts,
+                        }
+                        print_json(&Out {
+                            session,
+                            current_step: cur,
+                            counts: Counts {
+                                total: done + skipped + pending,
+                                done,
+                                skipped,
+                                pending,
+                            },
+                        })?;
+                    } else {
+                        print_line(&format!("Session: {} ({:?})", session.id, session.state));
+                        if let Some(cs) = cur {
+                            print_line(&format!("Current: {}. {} ({}m)", cs.index, cs.name, cs.minutes));
+                        } else {
+                            print_line(&styler.gray("Current: (none)"));
+                        }
+                        for s in session.steps.iter() {
+                            let mark = match s.status {
+                                crate::model::RoutineStepStatus::Done => styler.green("[x]"),
+                                crate::model::RoutineStepStatus::Skipped => styler.gray("[-]"),
+                                crate::model::RoutineStepStatus::Pending => "[ ]".to_string(),
+                            };
+                            print_line(&format!("- {} {}. {} ({}m)", mark, s.index, s.name, s.minutes));
+                        }
+                    }
+                    Ok(())
+                }
+            }
+        }
+
+        Command::Nag(args) => {
+            ensure_format_supported(cli.format, false)?;
+
+            match args.command {
+                NagCommand::Show => {
+                    let db = read_db(&db_path)?;
+                    if cli.format == Format::Json {
+                        #[derive(serde::Serialize)]
+                        struct Out {
+                            nag: crate::model::Nag,
+                        }
+                        print_json(&Out { nag: db.nag })?;
+                    } else {
+                        print_line(&format!(
+                            "quiet: {}–{}  cadence: {}m",
+                            db.nag.config.quiet_start, db.nag.config.quiet_end, db.nag.config.cadence_minutes
+                        ));
+                        if let Some(ref s) = db.nag.state.snoozed_until {
+                            print_line(&format!("snoozed_until: {}", s));
+                        }
+                        if let Some(ref s) = db.nag.state.last_sent_ts {
+                            print_line(&format!("last_sent_ts: {}", s));
+                        }
+                    }
+                    Ok(())
+                }
+
+                NagCommand::Config(c) => match c.command {
+                    NagConfigCommand::Set(s) => {
+                        let cfg = update_db(&db_path, |db| {
+                            crate::nag::set_config(db, &s.quiet_start, &s.quiet_end, s.cadence_minutes)
+                        })?;
+
+                        if cli.format == Format::Json {
+                            #[derive(serde::Serialize)]
+                            struct Out {
+                                config: crate::model::NagConfig,
+                            }
+                            print_json(&Out { config: cfg })?;
+                        } else {
+                            print_line(&format!(
+                                "Updated nag config: quiet {}–{}, cadence {}m",
+                                cfg.quiet_start, cfg.quiet_end, cfg.cadence_minutes
+                            ));
+                        }
+                        Ok(())
+                    }
+                },
+
+                NagCommand::Snooze(s) => {
+                    let st = update_db(&db_path, |db| crate::nag::snooze(db, &s.until, s.reason.as_deref()))?;
+                    if cli.format == Format::Json {
+                        #[derive(serde::Serialize)]
+                        struct Out {
+                            state: crate::model::NagState,
+                        }
+                        print_json(&Out { state: st })?;
+                    } else {
+                        print_line(&format!("Snoozed until: {}", s.until));
+                    }
+                    Ok(())
+                }
+
+                NagCommand::Unsnooze => {
+                    let st = update_db(&db_path, |db| Ok(crate::nag::unsnooze(db)))?;
+                    if cli.format == Format::Json {
+                        #[derive(serde::Serialize)]
+                        struct Out {
+                            state: crate::model::NagState,
+                        }
+                        print_json(&Out { state: st })?;
+                    } else {
+                        print_line("Unsnoozed.");
+                    }
+                    Ok(())
+                }
+
+                NagCommand::Sent(s) => {
+                    let st = update_db(&db_path, |db| crate::nag::record_sent(db, &s.ts))?;
+                    if cli.format == Format::Json {
+                        #[derive(serde::Serialize)]
+                        struct Out {
+                            state: crate::model::NagState,
+                        }
+                        print_json(&Out { state: st })?;
+                    } else {
+                        print_line(&format!("Recorded last_sent_ts: {}", s.ts));
+                    }
+                    Ok(())
+                }
+
+                NagCommand::Plan(p) => {
+                    let db = read_db(&db_path)?;
+                    let plan = crate::nag::plan(&db, &p.date, &p.now_ts, p.include_archived)?;
+
+                    if cli.format == Format::Json {
+                        print_json(&plan)?;
+                    } else {
+                        print_line(&format!(
+                            "should_send={} severity={} due={} debts={} next_check_at={}",
+                            plan.should_send, plan.severity, plan.due_count, plan.debts_due_count, plan.next_check_at
+                        ));
                     }
                     Ok(())
                 }
